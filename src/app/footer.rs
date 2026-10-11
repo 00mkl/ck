@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-/// A message in the footer, for a moment (errors a little longer).
+/// A message in the footer, for a moment: long enough to read (errors a little longer).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Status {
     pub text: String,
@@ -11,9 +11,11 @@ pub struct Status {
 }
 
 impl Status {
-    /// How long it replaces the key hints.
+    /// How long it replaces the key hints: a second for every 20 characters or so, from
+    /// 2 seconds (5 for an error) to 6.
     fn ttl(&self) -> Duration {
-        Duration::from_secs(if self.error { 5 } else { 2 })
+        let reading = (self.text.chars().count() / 20) as u64;
+        Duration::from_secs(reading.clamp(if self.error { 5 } else { 2 }, 6))
     }
 }
 
@@ -110,6 +112,14 @@ mod tests {
 
     fn text(f: &Footer) -> Option<&str> {
         f.get().map(|s| s.text.as_str())
+    }
+
+    #[test]
+    fn a_long_message_stays_long_enough_to_read() {
+        assert_eq!(info("Saved").ttl(), Duration::from_secs(2));
+        assert_eq!(info(&"x".repeat(80)).ttl(), Duration::from_secs(4));
+        assert_eq!(info(&"x".repeat(500)).ttl(), Duration::from_secs(6));
+        assert_eq!(error("Oops").ttl(), Duration::from_secs(5));
     }
 
     #[test]

@@ -605,7 +605,8 @@ Watched shows "follows /lmg/" on followed threads; `. F` again stops following.
 
 Each thread says how old it is and, once it has replies, how long since the last one
 (`308 replies · 167 images · 1y old · last reply 2h ago`): an old general can be the
-liveliest thread on a board. Narrower, and in the grid, it's the time since the last reply.
+liveliest thread on a board. A vichan site whose catalog doesn't say when (8kun) is asked
+for its `threads.json` too. Narrower, and in the grid, it's the time since the last reply.
 
 Catalogs mark threads that weren't there on your previous visit with "new" (the header
 counts them), and threads you've opened before show how many replies they've gained since,
@@ -847,7 +848,9 @@ have keys of their own for these, give `download_thread` or `export` one (see
 Files go into `~/Downloads/ck/{site}/{board}/{thread}/` (your system's Downloads folder).
 Files are named `{post}_{original name}` with unsafe characters replaced; files that
 already exist are skipped, so saving all the thread's files again later only fetches
-what's new. Progress shows at the right of the footer. Downloads go through the same rate
+what's new. Progress shows at the right of the footer (`⇣ saving 6 of 9 files`), and when
+it's done the footer says how many were saved where (long messages stay up long enough to
+read). Downloads go through the same rate
 limiter as images. A file lands whole or not at all, like ck's state files: a download that
 fails leaves nothing behind, and a download never writes through a symlink at its name.
 When the site or archive has only a file's thumbnail, saving skips it.

@@ -108,7 +108,7 @@ impl App {
             }
             Saving::Page => (
                 "Save the thread as a page?",
-                vec![format!("thread.html and thread.json ({} posts)", t.live_posts().len()), format!("to {at}"), "and a copy in Saved".into()],
+                vec![format!("thread.html and thread.json ({})", super::plural_posts(t.live_posts().len())), format!("to {at}"), "and a copy in Saved".into()],
             ),
         };
         self.popup = Some(Popup::Confirm(Confirm { what, title, lines }));
@@ -239,8 +239,8 @@ impl App {
             DlEvent::Finished => {
                 d.running -= 1;
                 if d.running == 0 {
-                    let dir = d.dir.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
-                    let mut msg = format!("Downloaded {} file{} to {dir}", d.done, if d.done == 1 { "" } else { "s" });
+                    let dir = d.dir.as_ref().map(|p| tilde(&p.display().to_string())).unwrap_or_default();
+                    let mut msg = format!("Saved {} file{} in {dir}", d.done, if d.done == 1 { "" } else { "s" });
                     if d.skipped > 0 {
                         let _ = write!(msg, ", {} already there", d.skipped);
                     }

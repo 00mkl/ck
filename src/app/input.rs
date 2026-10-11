@@ -851,7 +851,7 @@ impl App {
                 let msg = match t.next_match(true) {
                     Some(i) => {
                         t.select(i);
-                        format!("{} posts match \"{}\" (n/N to move)", t.matches.len(), t.search)
+                        format!("{} {} \"{}\" (n/N to move)", super::plural_posts(t.matches.len()), if t.matches.len() == 1 { "matches" } else { "match" }, t.search)
                     }
                     None if t.search.is_empty() => return,
                     None => format!("No posts match \"{}\"", t.search),

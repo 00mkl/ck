@@ -96,17 +96,23 @@ fn site_width(app: &App) -> usize {
     app.sites.iter().map(|s| markup::columns(&s.cfg.name)).max().unwrap_or(0).clamp(9, 20) + 2
 }
 
+/// The board column of a list of `keys`: as wide as its longest `/board/` (from 8, up to
+/// 16), and a space.
+fn board_width<'a>(keys: impl Iterator<Item = &'a crate::store::ThreadKey>) -> usize {
+    keys.map(|k| markup::columns(&k.board) + 2).max().unwrap_or(0).clamp(8, 16) + 2
+}
+
 /// `site  /board/  subject`, the shared start of Watched, History and Saved rows, in a row
 /// `width` wide: the subject gets what's left (`spread` cuts it). On a narrow screen the
 /// site goes, and the board takes only its own room.
-fn thread_row(key: &crate::store::ThreadKey, subject: &str, width: usize, site_w: usize) -> Vec<Span<'static>> {
+fn thread_row(key: &crate::store::ThreadKey, subject: &str, width: usize, (site_w, board_w): (usize, usize)) -> Vec<Span<'static>> {
     let t = theme();
     let board = format!("/{}/", key.board);
     let mut row = Vec::new();
     if width >= 70 {
         row.push(Span::styled(col(&key.site, site_w), dim()));
     }
-    row.push(Span::styled(if width >= 50 { pad(&board, 10) } else { format!("{board} ") }, bold(t.primary)));
+    row.push(Span::styled(if width >= 50 { col(&board, board_w) } else { format!("{board} ") }, bold(t.primary)));
     row.push(Span::styled(subject.to_string(), Style::new().fg(t.text)));
     row
 }
@@ -114,7 +120,7 @@ fn thread_row(key: &crate::store::ThreadKey, subject: &str, width: usize, site_w
 pub(super) fn draw_watched(f: &mut Frame, app: &mut App, area: Rect) {
     let t = theme();
     let width = area.width.saturating_sub(PAD + 1) as usize;
-    let site_w = site_width(app);
+    let columns = (site_width(app), board_width(app.store.all_watched().iter().map(|w| &w.key)));
     let rows = app.visible_watched();
     let mut state = app.list_state(View::Watched);
     app.drawn.body = draw_rows(f, area, rows.len(), &mut state, (1, 0), None, &|_| false, &mut |k| {
@@ -145,7 +151,7 @@ pub(super) fn draw_watched(f: &mut Frame, app: &mut App, area: Rect) {
             None => {}
         }
         right.push(Span::styled(plural(w.posts, "post"), dim()));
-        vec![spread(thread_row(&w.key, &w.subject, width, site_w), right, width)]
+        vec![spread(thread_row(&w.key, &w.subject, width, columns), right, width)]
     });
     app.list_scrolled(View::Watched, state.offset());
     if app.drawn.body.is_none() {
@@ -156,12 +162,12 @@ pub(super) fn draw_watched(f: &mut Frame, app: &mut App, area: Rect) {
 
 pub(super) fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
     let width = area.width.saturating_sub(PAD + 1) as usize;
-    let site_w = site_width(app);
+    let columns = (site_width(app), board_width(app.store.history.iter().map(|v| &v.key)));
     let rows = app.visible_history();
     let mut state = app.list_state(View::History);
     app.drawn.body = draw_rows(f, area, rows.len(), &mut state, (1, 0), None, &|_| false, &mut |k| {
         let Some(v) = rows.get(k).and_then(|&i| app.store.history.get(i)) else { return Vec::new() };
-        vec![spread(thread_row(&v.key, &v.subject, width, site_w), vec![Span::styled(ago(v.opened, app.clock), dim())], width)]
+        vec![spread(thread_row(&v.key, &v.subject, width, columns), vec![Span::styled(ago(v.opened, app.clock), dim())], width)]
     });
     app.list_scrolled(View::History, state.offset());
     if app.drawn.body.is_none() {
@@ -172,7 +178,7 @@ pub(super) fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
 pub(super) fn draw_saved(f: &mut Frame, app: &mut App, area: Rect) {
     let t = theme();
     let width = area.width.saturating_sub(PAD + 1) as usize;
-    let site_w = site_width(app);
+    let columns = (site_width(app), board_width(app.store.saved.iter().map(|m| &m.key)));
     let rows = app.visible_saved();
     let mut state = app.list_state(View::Saved);
     app.drawn.body = draw_rows(f, area, rows.len(), &mut state, (1, 0), None, &|_| false, &mut |k| {
@@ -184,7 +190,7 @@ pub(super) fn draw_saved(f: &mut Frame, app: &mut App, area: Rect) {
             right.extend([chip("watching", t.on_primary_container, t.primary_container), Span::raw(" ")]);
         }
         right.push(Span::styled(format!(" No.{}  ·  {}  ·  {}", m.key.no, plural(m.posts, "post"), ago(m.saved, app.clock)), dim()));
-        vec![spread(thread_row(&m.key, &m.subject, width, site_w), right, width)]
+        vec![spread(thread_row(&m.key, &m.subject, width, columns), right, width)]
     });
     app.list_scrolled(View::Saved, state.offset());
     if app.drawn.body.is_none() {
@@ -276,13 +282,14 @@ pub(super) fn draw_catalog(f: &mut Frame, app: &mut App, area: Rect) {
             meta.push(Span::styled(format!("+{n} "), bold(t.new)));
         }
         let text_w = if thumbs { width.saturating_sub(thumb.width as usize + 2) } else { width };
-        // The counts in words, or (when that doesn't leave the subject room) as the grid
-        // writes them, "R312 I58": on a narrow screen they shrink rather than vanish.
-        let facts = |short: bool| {
+        // The counts in words with the thread's age and last reply; without its age; then
+        // as the grid writes them, "R312 I58 · 2h": they give way to a subject that needs the
+        // room, and shrink rather than vanish on a narrow screen.
+        let facts = |level: u8| {
             let mut facts = Vec::new();
             if let Some(r) = p.replies {
                 let images = p.images.unwrap_or(0) as usize;
-                if short {
+                if level == 2 {
                     facts.push(format!("R{r} I{images}"));
                 } else {
                     facts.push(count(r as usize, "reply", "replies"));
@@ -292,16 +299,17 @@ pub(super) fn draw_catalog(f: &mut Frame, app: &mut App, area: Rect) {
             // How old it is, and (when it has replies) how long since the last: an old thread
             // can be the liveliest.
             match last_reply(p) {
-                Some(at) if !short => facts.extend([format!("{} old", ago(p.time, app.clock).trim_end_matches(" ago")), format!("last reply {}", ago(at, app.clock))]),
+                Some(at) if level == 0 => facts.extend([format!("{} old", ago(p.time, app.clock).trim_end_matches(" ago")), format!("last reply {}", ago(at, app.clock))]),
+                Some(at) if level == 1 => facts.push(format!("last reply {}", ago(at, app.clock))),
                 Some(at) => facts.push(ago(at, app.clock)),
                 None => facts.push(ago(p.time, app.clock)),
             }
             facts.join(" · ")
         };
         let head_w = markup::spans_columns(&head);
-        let long = facts(false);
-        let short = head_w.min(20) + markup::columns(&long) + 4 > text_w;
-        meta.push(Span::styled(if short { facts(true) } else { long }, dim()));
+        let fits = |f: &String| head_w.min(48) + markup::columns(f) + 4 <= text_w;
+        let chosen = [facts(0), facts(1)].into_iter().find(fits).unwrap_or_else(|| facts(2));
+        meta.push(Span::styled(chosen, dim()));
         // The subject gives way to the counts.
         let meta_w = markup::spans_columns(&meta);
         let head_room = text_w.saturating_sub(meta_w + 2);
@@ -397,9 +405,9 @@ pub(super) fn draw_search(f: &mut Frame, app: &mut App, area: Rect) {
         Some(saved) => {
             let line = if saved.finished {
                 let skipped = if saved.skipped > 0 { format!(" ({} couldn't be read)", saved.skipped) } else { String::new() };
-                format!("{} in {} saved threads{skipped}", plural(s.hits.len(), "post"), saved.of)
+                format!("{} in {}{skipped}", plural(s.hits.len(), "post"), plural(saved.of, "saved thread"))
             } else {
-                format!("searching… {} of {} saved threads", saved.done, saved.of)
+                format!("searching… {} of {}", saved.done, plural(saved.of, "saved thread"))
             };
             put(f, area.x + PAD, area.y, area.width.saturating_sub(PAD), Line::styled(line, dim()));
             Rect { y: area.y + 2, height: area.height.saturating_sub(2), ..area }
