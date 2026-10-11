@@ -136,17 +136,45 @@ fn draw_fields(f: &mut Frame, c: &Compose, area: Rect) {
                 put(f, value_x, y, value_w, Line::from(vec![Span::styled(mark, style), Span::styled(" spoiler the file (space)", dim())]));
                 y += 1;
             }
+            Field::File => {
+                // Beside the path: the names tab could complete it to, else what's there.
+                let (note, style) = match &c.file_choices {
+                    names if !names.is_empty() => (names.join("  "), dim()),
+                    _ => file_note(c.file.text()),
+                };
+                let note_w = cells(markup::columns(&note)).min(value_w / 2);
+                let path_w = value_w.saturating_sub(if note_w > 0 { note_w + 2 } else { 0 });
+                draw_editor(f, &c.file, Rect::new(value_x, y, path_w, 1), focused, Some("a path: ~/pictures/cat.png (tab completes)"));
+                put(f, value_x + path_w + 2, y, note_w, Line::styled(truncate(&note, usize::from(note_w)), style));
+                y += 1;
+            }
             _ => {
                 let (editor, placeholder) = match field {
                     Field::Name => (&c.name, "Anonymous"),
                     Field::Options => (&c.options, "sage, …"),
-                    Field::Subject => (&c.subject, ""),
-                    _ => (&c.file, "a path: ~/pictures/cat.png"),
+                    _ => (&c.subject, ""),
                 };
                 draw_editor(f, editor, Rect::new(value_x, y, value_w, 1), focused, Some(placeholder));
                 y += 1;
             }
         }
+    }
+}
+
+/// What's at the file's path, before it's posted: its size and kind, or why it can't be.
+fn file_note(path: &str) -> (String, Style) {
+    let path = path.trim();
+    if path.is_empty() {
+        return (String::new(), dim());
+    }
+    let full = crate::config::expand_home(path);
+    match std::fs::metadata(&full) {
+        Ok(m) if m.is_file() => {
+            let kind = full.extension().map(|e| e.to_string_lossy().to_uppercase()).unwrap_or_default();
+            (format!("{}{}", human_size(m.len()), if kind.is_empty() { String::new() } else { format!(" · {kind}") }), dim())
+        }
+        Ok(_) => ("a folder: tab lists it".into(), Style::new().fg(theme().warning)),
+        Err(_) => ("no such file".into(), Style::new().fg(theme().error)),
     }
 }
 

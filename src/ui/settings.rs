@@ -64,7 +64,7 @@ pub(super) fn draw_settings_popup(f: &mut Frame, app: &mut App) {
     match &mut popup {
         SettingsPopup::Themes { list, names, .. } => draw_themes(f, app, list, names),
         SettingsPopup::Colors { list, editing } => draw_colors(f, app, list, editing.as_deref()),
-        SettingsPopup::Keys { list, capture } => draw_keys(f, app, list, *capture),
+        SettingsPopup::Keys { list, capture, filter, typing } => draw_keys(f, app, list, *capture, filter, *typing),
         SettingsPopup::Filters { list, counts } => draw_filter_list(f, app, list, counts),
         SettingsPopup::Sites(m) => draw_my_sites(f, m),
         SettingsPopup::BoardImages { list } => draw_board_images(f, app, list),
@@ -115,11 +115,18 @@ fn draw_colors(f: &mut Frame, app: &App, list: &mut ListState, editing: Option<&
     });
 }
 
-fn draw_keys(f: &mut Frame, app: &App, list: &mut ListState, capture: Option<bool>) {
+fn draw_keys(f: &mut Frame, app: &App, list: &mut ListState, capture: Option<bool>, filter: &str, typing: bool) {
     let t = theme();
-    let rows = key_rows();
-    let hint = if capture.is_some() { "press a key · esc cancel" } else { "enter rebind · a add · u unbind · x reset · esc close" };
+    let rows = app.key_rows_matching(filter);
+    let hint = if capture.is_some() { "press a key · esc cancel" } else { "enter rebind · a add · u unbind · x reset · / filter · esc close" };
     let sel = list.selected().unwrap_or(0);
+    // As wide as the descriptions and where each works, when the screen has the room.
+    let (what_w, scopes_w) = Action::ALL.iter().fold((37, 20), |(w, s), a| {
+        let scopes = a.scopes().iter().map(|s| s.label()).collect::<Vec<_>>().join(", ");
+        (w.max(markup::columns(a.what()) + 2), s.max(markup::columns(&scopes)))
+    });
+    let width = cells(2 + 16 + 17 + what_w + scopes_w + 4).min(f.area().width.saturating_sub(4)).max(96);
+    let what_w = what_w.min((width as usize).saturating_sub(2 + 16 + 17 + 20 + 4)).max(37);
     let foot = |_| {
         vec![match (capture, rows.get(sel).and_then(|r| r.ok())) {
             (Some(add), Some(action)) => {
@@ -130,11 +137,17 @@ fn draw_keys(f: &mut Frame, app: &App, list: &mut ListState, capture: Option<boo
                     Span::styled("   esc cancels", dim()),
                 ])
             }
+            _ if typing || !filter.is_empty() => Line::from(vec![
+                Span::styled("/ ", bold(t.primary)),
+                Span::styled(filter.to_string(), bold(t.text)),
+                Span::styled(if typing { "▏" } else { "" }, Style::new().fg(t.primary)),
+                Span::styled(if typing { "   enter keep · esc clear" } else { "   esc clears" }, dim()),
+            ]),
             _ => Line::styled("Changed keys are saved in [keys]; navigation keys are fixed. Without a key: on a letter in its menu (. h).", dim()),
         }]
     };
     // Group titles are never selected, so never painted.
-    list_panel(f, (96, "Keys", hint), list, &rows, ("", true), foot, |_, &row, width| {
+    list_panel(f, (width, "Keys", hint), list, &rows, ("No command matches", true), foot, |_, &row, width| {
         let action = match row {
             Err(title) => return Line::styled(title.to_string(), bold(t.primary)),
             Ok(action) => action,
@@ -150,8 +163,8 @@ fn draw_keys(f: &mut Frame, app: &App, list: &mut ListState, capture: Option<boo
         // Narrow: just the key and what it does.
         if width >= 80 {
             spans.push(Span::styled(pad(action.name(), 17), dim()));
-            spans.push(Span::styled(col(action.what(), 37), Style::new().fg(t.text)));
-            spans.push(Span::styled(truncate(&scopes, (width as usize).saturating_sub(72)), dim()));
+            spans.push(Span::styled(col(action.what(), what_w), Style::new().fg(t.text)));
+            spans.push(Span::styled(truncate(&scopes, (width as usize).saturating_sub(2 + 16 + 17 + what_w)), dim()));
         } else {
             spans.push(Span::styled(truncate(action.what(), (width as usize).saturating_sub(18)), Style::new().fg(t.text)));
         }

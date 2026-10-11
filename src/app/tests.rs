@@ -580,6 +580,15 @@ fn key_editor_rebinds_saves_and_refuses_clashes() {
     assert!(app.keys.is_default(Action::Watch));
     let c: Config = toml::from_str(&std::fs::read_to_string(dir.path().join("config.toml")).unwrap()).unwrap();
     assert!(c.keys.is_default(Action::Watch));
+    // `/` finds a command by what it does; enter on it rebinds it.
+    press(&mut app, KeyCode::Char('/'));
+    type_text(&mut app, "the watched threads");
+    press(&mut app, KeyCode::Enter);
+    let Some(SettingsPopup::Keys { list, .. }) = app.settings_popup() else { panic!("not the key editor") };
+    assert_eq!(app.key_rows_matching("the watched threads").get(list.selected().unwrap()), Some(&Ok(Action::Watched)));
+    press(&mut app, KeyCode::Esc);
+    let Some(SettingsPopup::Keys { filter, .. }) = app.settings_popup() else { panic!("esc took the filter, not the editor") };
+    assert!(filter.is_empty());
     // The new keys work at once.
     app.popup = None;
     app.tab.navigate(View::Catalog);
@@ -2425,7 +2434,10 @@ fn the_filter_list_edits_turns_off_and_removes() {
     assert!(app.tab.thread.as_ref().unwrap().marks.why_hidden(1).is_none());
     let reloaded: Config = toml::from_str(&config_text(&app)).unwrap();
     assert!(!reloaded.filters[1].enabled && reloaded.filters[0].enabled);
-    // x removes it; the first filter and its comments are as they were.
+    // x asks, and x again removes it; the first filter and its comments are as they were.
+    drawn(&mut app);
+    app.on_key(KeyEvent::from(KeyCode::Char('x')));
+    assert!(app.footer.get().unwrap().text.starts_with("Press x again") && config_text(&app) != FILTER_CONFIG, "{:?}", app.footer.get());
     app.on_key(KeyEvent::from(KeyCode::Char('x')));
     assert_eq!(config_text(&app), FILTER_CONFIG);
     // A filter changed in the file meanwhile isn't overwritten.
@@ -5529,9 +5541,10 @@ fn replies_quote_the_post_and_keep_their_draft() {
     app.act(Action::Reply);
     type_text(&mut app, "hi");
     assert_eq!(reply_box(&mut app).comment.text(), ">>2\nhi");
-    // Closed, it's kept; opened on another post, that one's quoted under it.
+    // Closed, it's kept (and the thread says so); opened on another post, that one's quoted
+    // under it.
     app.on_key(KeyEvent::from(KeyCode::Esc));
-    assert!(app.popup.is_none());
+    assert!(app.popup.is_none() && app.draft_here());
     app.tab.thread.as_mut().unwrap().selected = 2;
     app.act(Action::Reply);
     assert_eq!(reply_box(&mut app).comment.text(), ">>2\nhi\n>>3\n");
@@ -5543,6 +5556,43 @@ fn replies_quote_the_post_and_keep_their_draft() {
         other.act(Action::Reply);
         assert_eq!(other.popup.is_some(), opens, "{kind}");
     }
+}
+
+#[test]
+fn a_catalog_filter_puts_subjects_that_have_it_first() {
+    let mut app = local_app();
+    let op = |no, subject: &str, text: &str| Post { no, subject: Some(subject.into()), body: vec![Line::raw(text.to_string())], ..Default::default() };
+    app.tab.catalog = Catalog::of("a", "x", vec![op(1, "/vcg/", "see /lmg/ too"), op(2, "/lmg/ - Local Models General", ""), op(3, "other", "")]);
+    app.tab.navigate(View::Catalog);
+    app.edit_filter(View::Catalog, |f| *f = "lmg".into());
+    assert_eq!(app.visible_catalog(), [1, 0]);
+}
+
+#[test]
+fn tab_completes_the_files_path() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("cat.png"), "x").unwrap();
+    std::fs::create_dir(dir.path().join("cats")).unwrap();
+    std::fs::write(dir.path().join(".hidden"), "x").unwrap();
+    let base = format!("{}/", dir.path().display());
+    let mut app = fourchan_thread(&[1]);
+    app.act(Action::Reply);
+    // From the comment to the file's field.
+    app.on_key(KeyEvent::from(KeyCode::Tab));
+    assert_eq!(reply_box(&mut app).field, super::posting::Field::File);
+    type_text(&mut app, &format!("{base}c"));
+    app.on_key(KeyEvent::from(KeyCode::Tab));
+    let c = reply_box(&mut app);
+    assert_eq!((c.file.text().to_string(), c.file_choices.clone()), (format!("{base}cat"), vec!["cat.png".to_string(), "cats/".to_string()]));
+    type_text(&mut app, ".");
+    app.on_key(KeyEvent::from(KeyCode::Tab));
+    assert_eq!(reply_box(&mut app).file.text(), format!("{base}cat.png"));
+    // Whole: tab moves on.
+    app.on_key(KeyEvent::from(KeyCode::Tab));
+    assert_eq!(reply_box(&mut app).field, super::posting::Field::Spoiler);
+    // Hidden names only when asked for.
+    assert_eq!(super::posting::complete_path(&format!("{base}.h")).map(|(p, _)| p), Some(format!("{base}.hidden")));
+    assert_eq!(super::posting::complete_path(&format!("{base}x")), None);
 }
 
 #[test]
