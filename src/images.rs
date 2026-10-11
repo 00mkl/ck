@@ -238,8 +238,9 @@ struct QueueState {
 enum Done {
     /// Not fetched: it scrolled out of view before a worker got to it.
     Skipped(String),
-    /// Decoded, and already sent to be encoded at this size if the UI had given one.
-    Fetched(String, Result<(Arc<DynamicImage>, Option<Frames>), String>, Option<View>),
+    /// Decoded, with the size the UI asked for (if it gave one) and its kind, to encode it
+    /// for at once.
+    Fetched(String, Result<(Arc<DynamicImage>, Option<Frames>), String>, Option<(Size, Kind)>),
     Encoded(String, View, Result<Protocol, String>),
     EncodedFrames(String, Size, Result<Vec<(Protocol, Duration)>, String>),
 }
@@ -278,8 +279,8 @@ pub struct Images {
     frame: Vec<(String, Kind, Option<Size>)>,
     tick: u64,
     bytes: usize,
-    /// When the animation drawn this frame shows its next frame (as of the last finished
-    /// frame, and in the one being drawn).
+    /// When an image drawn this frame changes next: an animation's next frame, or a resize
+    /// that's held (as of the last finished frame, and in the one being drawn).
     next_frame: Option<Instant>,
     drawing_next: Option<Instant>,
     /// Reading offline: only images already on disk (cached thumbnails, `file://` paths)
@@ -302,8 +303,8 @@ impl Images {
         if let Some(p) = &picker {
             let (enc_tx, enc_rx) = channel::<EncodeJob>();
             for _ in 0..workers {
-                let (q, tx, enc_tx, wake, disk) = (queue.clone(), tx.clone(), enc_tx.clone(), wake.clone(), disk.clone());
-                std::thread::spawn(move || worker(&q, &tx, &enc_tx, &*wake, disk.as_deref()));
+                let (q, tx, wake, disk) = (queue.clone(), tx.clone(), wake.clone(), disk.clone());
+                std::thread::spawn(move || worker(&q, &tx, &*wake, disk.as_deref()));
             }
             // Last, as it takes `tx` and `wake` themselves.
             let p = p.clone();
@@ -463,6 +464,9 @@ impl Images {
             {
                 let _ = enc.send(EncodeJob::One(url.to_string(), view, img.clone(), kind.fills()));
                 *pending = Some(view);
+            } else if let Some(due) = (*asked).and_then(|(_, since)| since.checked_add(RESIZE_DEBOUNCE)) {
+                // Drawn again once the size has held, even if nothing else happens by then.
+                self.drawing_next = Some(self.drawing_next.map_or(due, |t| t.min(due)));
             }
         }
         match protos.iter().rev().find(|(_, p)| p.size().width <= size.width && p.size().height <= size.height) {
@@ -471,7 +475,8 @@ impl Images {
         }
     }
 
-    /// When the animation on screen next changes, if one is playing.
+    /// When an image on screen next changes: an animation's next frame, or a new size
+    /// that's held long enough to be encoded.
     pub fn next_frame(&self) -> Option<Instant> {
         self.next_frame
     }
@@ -510,7 +515,7 @@ impl Images {
             return;
         }
         let frame = std::mem::take(&mut self.frame);
-        // Only an animation drawn this frame keeps the loop waking.
+        // Only an image drawn this frame keeps the loop waking.
         self.next_frame = self.drawing_next.take();
         let mut st = lock(&self.queue.state);
         st.wanted = frame.iter().map(|(u, ..)| u.clone()).collect();
@@ -535,7 +540,16 @@ impl Images {
                 Done::Fetched(url, Err(_), _) => {
                     self.slots.insert(url, Slot::Failed);
                 }
-                Done::Fetched(url, Ok((img, frames)), pending) => {
+                Done::Fetched(url, Ok((img, frames)), asked) => {
+                    // Encoded at once for the size the UI asked for, saving a round trip. It's
+                    // sent from here, once the slot is ready: a worker sending it could have
+                    // the encoding arrive before the image, be dropped, and leave the slot
+                    // waiting for it forever.
+                    let pending = asked.and_then(|(size, kind)| {
+                        let view = (size, Crop::FIT);
+                        let sent = self.encode.as_ref().is_some_and(|enc| enc.send(EncodeJob::One(url.clone(), view, img.clone(), kind.fills())).is_ok());
+                        sent.then_some(view)
+                    });
                     let frame_bytes: usize = frames.iter().flat_map(|f| f.iter()).map(|(f, _)| f.as_bytes().len()).sum();
                     let bytes = img.as_bytes().len().saturating_mul(2).saturating_add(frame_bytes);
                     self.bytes = self.bytes.saturating_add(bytes);
@@ -592,7 +606,7 @@ impl Images {
     }
 }
 
-fn worker(q: &Queue, tx: &Sender<Done>, encode: &Sender<EncodeJob>, wake: &dyn Fn(), disk: Option<&DiskCache>) {
+fn worker(q: &Queue, tx: &Sender<Done>, wake: &dyn Fn(), disk: Option<&DiskCache>) {
     loop {
         let (url, kind, size, host) = {
             let mut st = lock(&q.state);
@@ -625,12 +639,7 @@ fn worker(q: &Queue, tx: &Sender<Done>, encode: &Sender<EncodeJob>, wake: &dyn F
             lock(&q.state).busy.remove(&h);
             q.cv.notify_all();
         }
-        // Encode right away for the size the UI asked for, saving a round trip.
-        let pending = match (&res, size) {
-            (Ok((img, _)), Some(size)) => encode.send(EncodeJob::One(url.clone(), (size, Crop::FIT), img.clone(), kind.fills())).is_ok().then_some((size, Crop::FIT)),
-            _ => None,
-        };
-        if tx.send(Done::Fetched(url, res, pending)).is_err() {
+        if tx.send(Done::Fetched(url, res, size.map(|s| (s, kind)))).is_err() {
             return;
         }
         wake();
@@ -986,6 +995,9 @@ mod tests {
         assert!(matches!(im.get("u", Size::new(110, 32), Kind::Full), State::Ready(_)));
         let Some(Slot::Ready { pending, .. }) = im.slots.get("u") else { panic!() };
         assert_eq!(*pending, None);
+        // The loop is woken to draw it again then, even with no key pressed.
+        im.end_frame();
+        assert!(im.next_frame().is_some_and(|t| t > Instant::now()));
         std::thread::sleep(RESIZE_DEBOUNCE);
         im.get("u", Size::new(110, 32), Kind::Full);
         let Some(Slot::Ready { pending, .. }) = im.slots.get("u") else { panic!() };
@@ -1263,6 +1275,29 @@ mod tests {
         let kept: usize = im.slots.values().map(|s| if let Slot::Ready { bytes, .. } = s { *bytes } else { 0 }).sum();
         assert_eq!(im.bytes, kept);
         assert!(kept > 0);
+    }
+
+    #[test]
+    fn a_fetched_image_is_encoded_once_its_slot_is_ready() {
+        // The encoding for the size asked for is sent when the image arrives, so its result
+        // always finds the slot ready (sent by a worker, it could come first and be lost).
+        let mut im = Images::offline();
+        let (tx, rx) = channel();
+        im.rx = rx;
+        let (enc_tx, enc_rx) = channel();
+        im.encode = Some(enc_tx);
+        let size = Size::new(10, 4);
+        let img = DynamicImage::new_rgb8(64, 48);
+        tx.send(Done::Fetched("u".into(), Ok((Arc::new(img.clone()), None)), Some((size, Kind::Thumb)))).unwrap();
+        im.poll();
+        let Ok(EncodeJob::One(url, view, _, fill)) = enc_rx.try_recv() else { panic!("no encoding asked for") };
+        assert_eq!((url.as_str(), view, fill), ("u", (size, Crop::FIT), true));
+        assert!(matches!(im.get("u", size, Kind::Thumb), State::Rendering));
+        let p = encode(&Picker::halfblocks(), &img, size, true).unwrap();
+        tx.send(Done::Encoded("u".into(), view, Ok(p))).unwrap();
+        im.poll();
+        assert!(matches!(im.get("u", size, Kind::Thumb), State::Ready(_)));
+        assert!(enc_rx.try_recv().is_err(), "encoded twice");
     }
 
     #[test]

@@ -108,6 +108,11 @@ fn plural(n: usize, word: &str) -> String {
     count(n, word, &format!("{word}s"))
 }
 
+/// A list's size, "2 of 151 threads" while a filter shows only some of it.
+fn shown_of(filter: &str, shown: usize, total: usize, word: &str) -> String {
+    if filter.is_empty() { plural(total, word) } else { format!("{shown} of {}", plural(total, word)) }
+}
+
 /// "1 reply", "2 replies": for words that don't just take an s.
 fn count(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
@@ -219,13 +224,17 @@ fn draw_tab_row(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
     let t = theme();
-    let each = (area.width as usize / n).clamp(8, 28);
+    // A watched thread's new posts, kept whatever the label is cut to.
+    let tabs: Vec<(String, String)> = (0..n).map(|i| (app.tab_label(i), app.tab_unread(i).map_or(String::new(), |n| format!(" ({n})")))).collect();
+    // Each label whole (up to a few words' worth) if they all fit; else the longest are cut
+    // to the same length, as long as fits.
+    let width = |cap: usize| -> usize {
+        tabs.iter().enumerate().map(|(i, (label, unread))| markup::columns(&format!(" {} ", i + 1)) + markup::columns(label).min(cap) + markup::columns(unread) + 2).sum()
+    };
+    let cap = (3..=48).rev().find(|&cap| width(cap) <= usize::from(area.width)).unwrap_or(3);
     let mut x = area.x;
-    for i in 0..n {
-        let label = app.tab_label(i);
-        // A watched thread's new posts, kept whatever the label is cut to.
-        let unread = app.tab_unread(i).map_or(String::new(), |n| format!(" ({n})"));
-        let text = format!(" {} {}{unread} ", i + 1, truncate(&label, each.saturating_sub(5 + markup::columns(&unread))));
+    for (i, (label, unread)) in tabs.iter().enumerate() {
+        let text = format!(" {} {}{unread} ", i + 1, truncate(label, cap));
         let w = cells(markup::columns(&text)).min(area.right().saturating_sub(x));
         if w == 0 {
             break;
@@ -293,11 +302,11 @@ fn location(app: &App) -> (Vec<String>, Vec<Span<'static>>) {
             vec!["Sites".to_string()]
         }
         View::Boards => {
-            meta.push(plural(app.boards().len(), "board"));
+            meta.push(shown_of(&app.tab.board_list.filter, app.visible_boards().len(), app.boards().len(), "board"));
             vec![site(), "Boards".into()]
         }
         View::Catalog => {
-            meta.push(plural(app.tab.catalog.posts().len(), "thread"));
+            meta.push(shown_of(&app.tab.catalog_list.filter, app.visible_catalog().len(), app.tab.catalog.posts().len(), "thread"));
             let new = app.shown_catalog().filter(|(_, p)| app.tab.catalog.new.contains(&p.no)).count();
             if new > 0 {
                 meta.push(format!("{new} new"));
@@ -371,18 +380,18 @@ fn location(app: &App) -> (Vec<String>, Vec<Span<'static>>) {
         }
         View::Watched => {
             let (unread, _) = app.store.watched_new();
-            meta.push(plural(app.store.all_watched().len(), "thread"));
+            meta.push(shown_of(&app.watched_list.filter, app.visible_watched().len(), app.store.all_watched().len(), "thread"));
             if unread > 0 {
                 meta.push(format!("{unread} new"));
             }
             vec!["Watched".into()]
         }
         View::History => {
-            meta.push(plural(app.store.history.len(), "thread"));
+            meta.push(shown_of(&app.history_list.filter, app.visible_history().len(), app.store.history.len(), "thread"));
             vec!["History".into()]
         }
         View::Saved => {
-            meta.push(plural(app.store.saved.len(), "thread"));
+            meta.push(shown_of(&app.saved_list.filter, app.visible_saved().len(), app.store.saved.len(), "thread"));
             meta.push(human_size(app.store.saved.iter().fold(0u64, |n, m| n.saturating_add(m.bytes))));
             vec!["Saved".into()]
         }
@@ -605,7 +614,6 @@ fn footer_hints(app: &App) -> Vec<(String, &'static str)> {
                 let files = post.is_some_and(|p| !p.files.is_empty());
                 let quotes = post.is_some_and(|p| !p.links.is_empty() || !p.quotes.is_empty());
                 let parts = post.is_some_and(|p| !p.files.is_empty() || !p.links.is_empty() || !p.urls.is_empty());
-                let talks = post.is_some_and(|p| t.backlinks.get(t.selected).is_some_and(|b| !b.is_empty()) || p.quotes.iter().any(|q| t.index.contains_key(q)));
                 let mut hints = vec![("j/k".into(), "post")];
                 if files {
                     hints.push(("enter".into(), "view image"));
@@ -620,7 +628,7 @@ fn footer_hints(app: &App) -> Vec<(String, &'static str)> {
                 if quotes {
                     hints.push((k(Action::Preview), "preview quote"));
                 }
-                hints.push((k(Action::Show), if talks { "conversation…" } else { "show…" }));
+                hints.push((k(Action::Show), "show…"));
                 hints.push(("h".into(), "back"));
                 if app.can_post() {
                     hints.push((k(Action::Reply), "reply"));

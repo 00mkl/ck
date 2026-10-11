@@ -5611,3 +5611,19 @@ fn the_browser_view_has_a_pointer_for_the_keys() {
     let (x, y) = reply_box(&mut app).pointer.unwrap();
     assert!(x < 20 && y < 30, "{x} {y}");
 }
+
+/// A board opened before its site's list came (`: 2ch/b`) gets its title when it does;
+/// filtering the list by "/b" or "/b/" finds it.
+#[test]
+fn a_board_opened_early_gets_its_title_and_slashes_filter_boards() {
+    let mut app = local_app();
+    let board = |uri: &str, title: &str| Board { uri: uri.into(), title: title.into(), nsfw: None };
+    app.switch_site(0);
+    app.tab.board = Some(board("b", ""));
+    app.set_boards(0, vec![board("a", "Anime"), board("b", "Random"), board("bb", "More")], true);
+    assert_eq!(app.tab.board.as_ref().map(|b| b.title.as_str()), Some("Random"));
+    for (filter, found) in [("/b", vec![1, 2]), ("/b/", vec![1]), ("b", vec![1, 2]), ("random", vec![1])] {
+        app.tab.board_list.filter = filter.into();
+        assert_eq!(app.visible_boards(), found, "{filter}");
+    }
+}

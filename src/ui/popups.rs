@@ -238,49 +238,80 @@ fn help_sections(app: &App) -> Vec<(&'static str, Vec<(String, &'static str)>)> 
 }
 
 pub(super) fn draw_help(f: &mut Frame, app: &mut App) {
-    const COL: u16 = 50;
+    // A column is this wide at least (when there's room for two or more), and at most.
+    const NARROWEST: u16 = 50;
+    const WIDEST: u16 = 72;
     // Keys take this many columns; what they do wraps in the rest.
     const KEYS: usize = 21;
     let t = theme();
     let sections = help_sections(app);
-    // What they do wraps to the column, or a narrow screen's panel (two columns always fit).
-    let col = usize::from(COL.min(room(f, COL + 4, 0).0.saturating_sub(4)));
-    let sections: Vec<Vec<Line>> = sections
-        .into_iter()
-        .map(|(title, rows)| {
-            let mut lines = vec![Line::from(Span::styled(title, bold(t.primary)))];
-            for (k, v) in rows {
-                // A word too long for the column is cut, so the right column starts where it should.
-                for (i, part) in wrap_words(v, col.saturating_sub(KEYS)).into_iter().enumerate() {
-                    let keys = if i == 0 { format!("  {} ", pad(&truncate(&k, 18), 18)) } else { " ".repeat(KEYS) };
-                    let part = truncate(&part, col.saturating_sub(KEYS));
-                    lines.push(Line::from(vec![Span::styled(keys, bold(t.text)), Span::styled(part, Style::new().fg(t.text_dim))]));
+    // The keys' lines in columns `col` wide.
+    let lay_out = |col: usize| -> Vec<Vec<Line<'static>>> {
+        sections
+            .iter()
+            .map(|(title, rows)| {
+                let mut lines = vec![Line::from(Span::styled(*title, bold(t.primary)))];
+                for (k, v) in rows {
+                    // A word too long for the column is cut, so the next column starts where it should.
+                    for (i, part) in wrap_words(v, col.saturating_sub(KEYS)).into_iter().enumerate() {
+                        let keys = if i == 0 { format!("  {} ", pad(&truncate(k, 18), 18)) } else { " ".repeat(KEYS) };
+                        let part = truncate(&part, col.saturating_sub(KEYS));
+                        lines.push(Line::from(vec![Span::styled(keys, bold(t.text)), Span::styled(part, Style::new().fg(t.text_dim))]));
+                    }
                 }
-            }
-            lines.push(Line::raw(""));
-            lines
-        })
-        .collect();
-    let total: usize = sections.iter().map(Vec::len).sum();
+                lines.push(Line::raw(""));
+                lines
+            })
+            .collect()
+    };
+    // As many columns as the help needs to fit the screen's height, as many as fit its width
+    // if it doesn't, each as wide as there's room for (up to WIDEST).
     let area = f.area();
-    // Two columns when one doesn't fit and both do, split at the section boundary nearest the middle.
-    let two = cells(total).saturating_add(4) > area.height && area.width >= 2 * COL + 10;
-    let (mut left, mut right) = (Vec::new(), Vec::new());
-    for s in sections {
-        if two && left.len() + s.len() / 2 >= total / 2 { right.extend(s) } else { left.extend(s) }
+    let inside = area.width.saturating_sub(8);
+    let width_of = |n: u16| inside.saturating_sub(2 * (n - 1)) / n;
+    let most = (2..=4u16).rev().find(|&n| width_of(n) >= NARROWEST).unwrap_or(1);
+    let (mut n, mut sections) = (1, Vec::new());
+    for cols in 1..=most {
+        n = cols;
+        sections = lay_out(usize::from(width_of(cols).min(WIDEST)));
+        let lines: usize = sections.iter().map(Vec::len).sum();
+        if cells(lines.div_ceil(usize::from(cols))).saturating_add(4) <= area.height {
+            break;
+        }
     }
-    for c in [&mut left, &mut right] {
+    let col = width_of(n).min(WIDEST);
+    // Split at the section boundaries nearest an even share each.
+    let total: usize = sections.iter().map(Vec::len).sum();
+    let mut columns: Vec<Vec<Line>> = vec![Vec::new(); usize::from(n)];
+    let (mut at, mut placed) = (0, 0);
+    for s in sections {
+        if at + 1 < columns.len() && placed > 0 && placed + s.len() / 2 >= total * (at + 1) / columns.len() {
+            at += 1;
+        }
+        placed += s.len();
+        if let Some(c) = columns.get_mut(at) {
+            c.extend(s);
+        }
+    }
+    for c in &mut columns {
         while c.last().is_some_and(|l| markup::spans_columns(&l.spans) == 0) {
             c.pop();
         }
     }
-    // A row is the left column's line, then the right's.
-    left.resize(left.len().max(right.len()), Line::default());
-    for (l, r) in left.iter_mut().zip(right) {
-        l.spans.push(Span::raw(" ".repeat(usize::from(COL + 2).saturating_sub(markup::spans_columns(&l.spans)))));
-        l.spans.extend(r.spans);
+    // A row is each column's line, side by side.
+    let rows = columns.iter().map(Vec::len).max().unwrap_or(0);
+    let mut columns = columns.into_iter();
+    let mut left = columns.next().unwrap_or_default();
+    left.resize(rows, Line::default());
+    for (k, column) in columns.enumerate() {
+        // Where this column starts: after k + 1 columns and their gaps.
+        let start = (k + 1) * (usize::from(col) + 2);
+        for (l, r) in left.iter_mut().zip(column) {
+            l.spans.push(Span::raw(" ".repeat(start.saturating_sub(markup::spans_columns(&l.spans)))));
+            l.spans.extend(r.spans);
+        }
     }
-    let w = if two { 2 * COL + 6 } else { COL + 4 };
+    let w = n * col + 2 * (n - 1) + 4;
     let scrolls = cells(left.len()).saturating_add(3) > room(f, 0, cells(left.len()).saturating_add(3)).1;
     let hint = format!("{}images: {} · esc close", if scrolls { "j/k scroll · " } else { "" }, app.images.protocol_name());
     // In small terminals the help scrolls (j/k).

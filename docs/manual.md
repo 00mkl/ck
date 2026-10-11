@@ -48,7 +48,8 @@ something hidden in another tab, `w` with watched threads first); if that goes, 
 in its place is selected. While the list is still loading (or failed to load), it goes back
 to the one that went if the list brings it back. A `.` menu runs on what it opened on: what
 it would do to that does nothing (saying so) if that has gone. Sorting and typing or
-clearing a filter go back to the top.
+clearing a filter go back to the top. While a filter is on, the top bar shows it and how
+many of the list it shows ("23 of 151 threads"); a board filter takes `/b`, `/b/` or `b`.
 
 Navigation (fixed):
 
@@ -287,7 +288,7 @@ one brings it back.
 `. T` opens the selected thread in a new tab, next to the current one (in a thread, the
 quoted thread `enter` would go to). Each tab has its own place: view, board, catalog,
 thread, and jump trail. The tabs show as chips under the top bar when there's more than
-one; `]` and `[` move between them (or click one), `ctrl-w` closes one (not
+one, their titles whole while they fit and the longest cut first when they don't; `]` and `[` move between them (or click one), `ctrl-w` closes one (not
 the last). A tab on a watched thread counts the posts it has gained since you read it,
 like `2 Thread subject (5)`. Up to 9. Only the tab on screen refreshes its thread in the background;
 another tab's thread is refreshed when you come back to it (watched threads are refreshed

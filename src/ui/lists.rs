@@ -506,12 +506,19 @@ fn draw_grid(f: &mut Frame, app: &mut App, area: Rect) {
         if let Some(n) = app.new_replies(p) {
             facts.push(Span::styled(format!("+{n} "), bold(t.new)));
         }
-        let mut counts = Vec::new();
-        if let Some(r) = p.replies {
-            counts.push(format!("R{r} I{}", p.images.unwrap_or(0)));
-        }
-        counts.push(ago(p.time, app.clock).trim_end_matches(" ago").to_string());
-        facts.push(Span::styled(counts.join(" · "), dim()));
+        // The counts in words as far as the card has room: "94 replies · 61 images · 2d",
+        // then without the images, then as "R94 I61 · 2d".
+        let age = ago(p.time, app.clock).trim_end_matches(" ago").to_string();
+        let room = usize::from(w).saturating_sub(markup::spans_columns(&facts));
+        let counts = match p.replies {
+            Some(r) => {
+                let (replies, images) = (count(r as usize, "reply", "replies"), plural(p.images.unwrap_or(0) as usize, "image"));
+                let short = format!("R{r} I{} · {age}", p.images.unwrap_or(0));
+                [format!("{replies} · {images} · {age}"), format!("{replies} · {age}")].into_iter().find(|c| markup::columns(c) <= room).unwrap_or(short)
+            }
+            None => age,
+        };
+        facts.push(Span::styled(counts, dim()));
         let text_y = y + THUMB.height;
         for (row, line) in [Line::from(head), Line::styled(truncate(&rest, w as usize), dim()), Line::from(facts)].into_iter().enumerate() {
             if text_y + (row as u16) < area.bottom() {
