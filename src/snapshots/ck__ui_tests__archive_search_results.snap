@@ -9,12 +9,12 @@ expression: snapshot(&mut a)
     types and you can interact with memory as you wish, not as rust wish. also borrow checker …
 
     Anonymous  in thread 109912686                                       No.109914413  ·  0s ago
-    >>109913119 Your dependencies are very unlikely to follow an arbitrary guidelines you put on
-    your code.  >>109913062 Using unsafe or Rcs everywhere because of borrow checker is a sign …
+    …or Rcs everywhere because of borrow checker is a sign of not knowing what you are doing.
+    Once you get good at Rust, borrow checker is not an issue in practice. If an entire GPU …
 
     Anonymous  in thread 109912686                                       No.109913062  ·  0s ago
-    >>109913033 >Advantage over C, but not Rust since it has generics and static dispatch. Yes.
-    Rust makes it easier than even C++ to write decent code by default. However, the borrow …
+    …>Advantage over C, but not Rust since it has generics and static dispatch. Yes. Rust makes
+    it easier than even C++ to write decent code by default. However, the borrow checker is to…
 
     Anonymous  in thread 109910711                                       No.109912636  ·  0s ago
     >>109912620 Rust haters were filtered by the borrow checker because theyre scriptkiddies who

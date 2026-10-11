@@ -78,6 +78,7 @@ pub fn post(base: &str, v: &Value) -> Post {
         sticky: as_bool(&v["sticky"]),
         board: as_str(&v["board"]),
         locked: as_bool(&v["locked"]),
+        bumped: v["bumped"].as_str().and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok()).map(|t| t.timestamp()),
         ..parsed.into()
     }
 }

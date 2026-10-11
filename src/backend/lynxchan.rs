@@ -110,6 +110,7 @@ impl Lynxchan {
             sticky: as_bool(&v["pinned"]),
             board: as_str(&v["boardUri"]),
             locked: as_bool(&v["locked"]),
+            bumped: parse_time(&v["lastBump"]),
             ..parsed.into()
         }
     }
@@ -257,6 +258,7 @@ mod tests {
         let cat = end.parse_catalog(&fixture("lynxchan_catalog.json"));
         assert_eq!(cat[0].no, 908495);
         assert!(cat[0].sticky);
+        assert!(cat[1].bumped.is_some_and(|b| b > cat[1].time));
         let posts = end.parse_thread(&fixture("lynxchan_thread.json"));
         assert_eq!(posts[0].no, 867082);
         // The OP links the previous thread through its rendered markdown.

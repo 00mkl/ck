@@ -59,6 +59,7 @@ impl Makaba {
             sticky: as_bool(&v["sticky"]),
             board: as_str(&v["board"]),
             locked: as_bool(&v["closed"]),
+            bumped: as_i64(&v["lasthit"]),
             ..parsed.into()
         }
     }

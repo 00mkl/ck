@@ -65,6 +65,7 @@ pub fn parse_index(v: &Value) -> Vec<Post> {
             let shown_images = last.iter().filter(|p| attachment(&p["media"]).is_some()).count() as u64;
             op.replies = Some(saturate(as_u64(&t["omitted"]).unwrap_or(0).saturating_add(last.len() as u64)));
             op.images = Some(saturate(as_u64(&t["images_omitted"]).unwrap_or(0).saturating_add(shown_images)));
+            op.bumped = Some(bumped);
             Some((bumped, op))
         })
         .collect();

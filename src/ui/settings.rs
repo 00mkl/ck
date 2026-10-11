@@ -5,12 +5,20 @@ use super::*;
 pub(super) fn draw_settings(f: &mut Frame, app: &mut App, area: Rect) {
     let t = theme();
     let selected = app.list_state(View::Settings).selected().unwrap_or(0);
-    let rows = setting_rows();
+    // With a filter (`/`), the settings it leaves, without their sections.
+    let shown = app.visible_settings();
+    let headers = app.filter(View::Settings).is_empty();
+    let rows = if headers { setting_rows() } else { (0..shown.len()).map(Ok).collect() };
     // Scroll so the selected setting (and the note under the list, at the end) shows.
     let at = rows.iter().position(|r| *r == Ok(selected)).unwrap_or(0);
     let total = rows.len() + 2;
     let offset = if at + 1 == rows.len() { total } else { at + 2 }.saturating_sub(area.height as usize);
-    app.drawn.body = Some(Hit::Settings { area, offset });
+    app.drawn.body = Some(Hit::Settings { area, offset, headers });
+    let height = rows.len();
+    if shown.is_empty() {
+        empty(f, area, "No settings match");
+        return;
+    }
     let items: Vec<_> = settings().collect();
     // The values as wide as the widest, when the screen leaves the hints some room; else 34.
     let widest = items.iter().map(|item| markup::columns(&(item.value)(app)) + 2).max().unwrap_or(0);
@@ -23,7 +31,7 @@ pub(super) fn draw_settings(f: &mut Frame, app: &mut App, area: Rect) {
         match r {
             Err(title) => put(f, area.x, y, area.width, Line::styled(title.to_string(), bold(t.primary))),
             Ok(i) => {
-                let Some(item) = items.get(i) else { continue };
+                let Some(item) = shown.get(i).and_then(|&k| items.get(k)) else { continue };
                 let (label, hint) = (item.label, item.hint);
                 paint_row(f, Rect::new(area.x, y, area.width, 1), None, i == selected, false);
                 let value = (item.value)(app);
@@ -37,7 +45,7 @@ pub(super) fn draw_settings(f: &mut Frame, app: &mut App, area: Rect) {
             }
         }
     }
-    let y = (area.y as usize + setting_rows().len() + 1).checked_sub(offset).map_or_else(|| area.bottom(), |y| y as u16);
+    let y = (area.y as usize + height + 1).checked_sub(offset).map_or_else(|| area.bottom(), |y| y as u16);
     if y < area.bottom() {
         let note = match &app.config_path {
             Some(p) => format!(

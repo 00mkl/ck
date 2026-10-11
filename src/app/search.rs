@@ -30,6 +30,8 @@ pub struct Search {
     pub pages: u32,
     /// Where back goes: the site, board and view the search started from.
     pub(super) back: (usize, Option<Board>, View),
+    /// The site searched: the archive (or, for saved threads, the site it started on).
+    pub(super) archive: usize,
 }
 
 /// A search of the saved threads, running or done.
@@ -66,7 +68,7 @@ impl Drop for SavedSearch {
 impl Search {
     #[cfg(test)]
     pub fn for_tests(board: &str, query: &str, page: SearchPage) -> Self {
-        Self { saved: None, board: board.into(), query: query.into(), hits: page.hits, marks: Marks::default(), total: page.total, pages: 1, back: (0, None, View::Catalog) }
+        Self { saved: None, board: board.into(), query: query.into(), hits: page.hits, marks: Marks::default(), total: page.total, pages: 1, back: (0, None, View::Catalog), archive: 0 }
     }
 
     /// The thread hit `k` is in: its saved copy, or the archive's thread on `site`.
@@ -201,7 +203,7 @@ impl App {
     /// The results view of a search of `board` on `archive`, empty so far.
     fn show_search(&mut self, archive: usize, board: String, query: String, back: (usize, Option<Board>, View)) {
         self.switch_site(archive);
-        self.tab.search = Some(Search { saved: None, board, query, hits: Vec::new(), marks: Marks::default(), total: None, pages: 0, back });
+        self.tab.search = Some(Search { saved: None, board, query, hits: Vec::new(), marks: Marks::default(), total: None, pages: 0, back, archive });
         self.tab.search_list = FilteredList::fresh();
         self.tab.navigate(View::Search);
     }
@@ -223,7 +225,7 @@ impl App {
             self.info("Nothing is saved yet: watched threads are saved as they refresh");
         }
         let saved = SavedSearch { keys: Vec::new(), copies: Vec::new(), done: 0, of, skipped: 0, finished: of == 0, id, stop: stop.clone() };
-        self.tab.search = Some(Search { saved: Some(saved), board: String::new(), query: query.to_string(), hits: Vec::new(), marks: Marks::default(), total: None, pages: 0, back });
+        self.tab.search = Some(Search { saved: Some(saved), board: String::new(), query: query.to_string(), hits: Vec::new(), marks: Marks::default(), total: None, pages: 0, back, archive: self.tab.site });
         self.tab.search_list = FilteredList::fresh();
         self.tab.navigate(View::Search);
         // Saving waits for nothing: copies being written are read as they were.
@@ -295,8 +297,9 @@ impl App {
             return self.search_saved(&query);
         }
         let (board, query, page) = (s.board.clone(), s.query.clone(), s.pages + 1);
+        let Some(backend) = self.sites.get(s.archive).map(|a| a.backend.clone()) else { return };
         let label = if page == 1 { format!("Searching /{board}/ for \"{query}\"") } else { format!("Loading page {page} of results") };
-        self.spawn(self.current_site().backend.clone(), label, Then::Show, move |b, _, _| b.search(&board, &query, page), move |app, r| app.search_results(page, r));
+        self.spawn(backend, label, Then::Show, move |b, _, _| b.search(&board, &query, page), move |app, r| app.search_results(page, r));
     }
 
     /// A page of archive search results arrived.
@@ -363,9 +366,16 @@ impl App {
             return;
         }
         let Some((thread, post)) = s.hits.get(k) else { return };
-        let (thread, no) = (*thread, post.no);
-        let board = self.find_board(post.board.as_deref().unwrap_or(&s.board));
-        self.open_thread_at(board, thread, Opening::at(Some(no)));
+        let (thread, no, uri) = (*thread, post.no, post.board.clone().unwrap_or_else(|| s.board.clone()));
+        // Searched from a site (not the archive itself): the thread there, live, while it
+        // still is; the archive's copy once it's gone.
+        let live = Some(s.back.0).filter(|&l| l != s.archive && self.sites.get(l).is_some_and(|x| x.cfg.kind != SiteKind::Foolfuuka));
+        let or_archive = live.map(|_| s.archive);
+        if let Some(live) = live {
+            self.switch_site(live);
+        }
+        let board = self.find_board(&uri);
+        self.open_thread_at(board, thread, Opening { select: Some(no), or_archive, ..Opening::default() });
         self.tab.return_to = Some(View::Search);
     }
 

@@ -60,7 +60,7 @@ fn clicks_on_a_settings_popup_never_reach_the_rows_behind() {
     assert!(matches!(app.popup, Some(Popup::Settings(SettingsPopup::HiddenWords { .. }))));
     draw_at(&mut app, 100, 40);
     // A double click on the Hidden replies row, beside the popup: nothing changes.
-    let Some(Hit::Settings { area, offset }) = app.drawn.body else { panic!("no settings rows") };
+    let Some(Hit::Settings { area, offset, .. }) = app.drawn.body else { panic!("no settings rows") };
     let pos = settings::position("Hidden replies").unwrap();
     let row = setting_rows().iter().position(|r| *r == Ok(pos)).unwrap() - offset;
     let left = MouseEventKind::Down(MouseButton::Left);
@@ -4591,7 +4591,7 @@ fn a_thread_that_fails_to_open_keeps_what_it_was_to_open_on() {
     assert_eq!((p.thread, p.selected, p.conversation), (Some(5), Some(12), Some(10)));
     // ...and r tries it again on the same post, though not as last session's any more.
     app.act(Action::Reload);
-    assert_eq!(app.tab.opening(), Opening { select: Some(12), conversation: Some(10), restoring: false });
+    assert_eq!(app.tab.opening(), Opening { select: Some(12), conversation: Some(10), ..Opening::default() });
 }
 
 #[test]
@@ -5858,6 +5858,31 @@ fn board_tabs_name_their_site_when_tabs_are_on_several() {
     assert_eq!((app.tab_label(0), app.tab_label(1)), ("/x/".to_string(), "/xy/".to_string()));
     app.goto_str("b/y");
     assert_eq!((app.tab_label(0), app.tab_label(1)), ("a /x/".to_string(), "b /y/".to_string()));
+    // Threads too.
+    app.goto_str("b/y/5");
+    app.handle(answer(app.tab.req().unwrap(), thread_arrived, arrived(vec![Post { no: 5, subject: Some("Five".into()), ..Default::default() }])));
+    assert_eq!(app.tab_label(1), "b: Five");
+}
+
+#[test]
+fn slash_filters_the_settings() {
+    let mut app = local_app();
+    app.act(Action::Settings);
+    app.on_key(KeyEvent::from(KeyCode::Char('/')));
+    type_text(&mut app, "folder");
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    let shown: Vec<&str> = app.visible_settings().into_iter().filter_map(|i| settings::settings().nth(i)).map(|s| s.label).collect();
+    assert_eq!(shown, ["Folder"]);
+    // Enter changes the one shown.
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert!(matches!(app.popup, Some(Popup::Settings(SettingsPopup::Folder { .. }))));
+}
+
+#[test]
+fn a_menu_key_for_what_does_nothing_here_says_why() {
+    let mut app = fourchan_thread(&[1, 2, 3]);
+    press(&mut app, ".U");
+    assert_eq!((app.popup.is_none(), app.footer.get().map(|f| f.text.as_str())), (true, Some("No unread posts")));
 }
 
 /// A prefix waiting a moment shows what can follow it; at once, nothing (`gg` typed fast
@@ -5901,6 +5926,16 @@ fn an_archive_search_uses_an_archive_that_keeps_the_board() {
     page.hits[0].1.board = Some("tv".into());
     app.archive_searched("tv".into(), "x".into(), back, &names, Ok((Vec::new(), Some((2, page)))));
     assert_eq!((app.tab.view(), app.tab.site, app.tab.search.as_ref().unwrap().hits.len()), (View::Search, 2, 1));
+    // A result opens on the site searched from, live; gone from there, on the archive.
+    let (thread, no) = app.tab.search.as_ref().map(|s| (s.hits[0].0, s.hits[0].1.no)).unwrap();
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    let pending = |app: &App| app.tab.pending_thread.as_ref().map(|k| (k.site.clone(), k.no)).unwrap();
+    assert_eq!((app.tab.site, pending(&app)), (0, ("chan".to_string(), thread)));
+    app.handle(answer(app.tab.req().unwrap(), thread_arrived, Err(gone())));
+    assert_eq!((app.tab.site, pending(&app), app.tab.opening().select), (2, ("two".to_string(), thread), Some(no)));
+    // Back is the results, on the archive.
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert_eq!((app.tab.view(), app.tab.site), (View::Search, 2));
 }
 
 /// A quote of a post in another thread is drawn with an arrow; `p` fetches that thread and

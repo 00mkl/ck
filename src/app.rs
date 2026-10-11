@@ -199,8 +199,9 @@ pub enum Hit {
     Thread { area: Rect, scroll: usize },
     /// The catalog grid: its area, first visible item, columns, and cell size.
     Grid { area: Rect, offset: usize, cols: usize, cell: (u16, u16) },
-    /// The settings screen, laid out as `settings::rows()` from `offset`.
-    Settings { area: Rect, offset: usize },
+    /// The settings screen, laid out as `settings::rows()` from `offset`; or, with a filter
+    /// (`headers` false), the settings it shows, a row each.
+    Settings { area: Rect, offset: usize, headers: bool },
 }
 
 impl Hit {
@@ -212,7 +213,8 @@ impl Hit {
             Hit::List { area, offset, item_height } if area.contains(pos) => {
                 Some(offset + ((row - area.y) / item_height.max(1)) as usize)
             }
-            Hit::Settings { area, offset } if area.contains(pos) => settings::rows().get(offset + (row - area.y) as usize)?.ok(),
+            Hit::Settings { area, offset, headers: true } if area.contains(pos) => settings::rows().get(offset + (row - area.y) as usize)?.ok(),
+            Hit::Settings { area, offset, headers: false } if area.contains(pos) => Some(offset + (row - area.y) as usize),
             Hit::Grid { area, offset, cols, cell } if area.contains(pos) => {
                 let c = ((col - area.x) / cell.0) as usize;
                 (c < cols).then(|| offset + ((row - area.y) / cell.1) as usize * cols + c)
@@ -754,6 +756,12 @@ impl App {
         filtered(&self.history_list.filter, &self.store.history, |h| format!("{} /{}/ {} {}", h.key.site, h.key.board, h.key.no, h.subject))
     }
 
+    /// The settings `/` leaves: by name, what it's for, or its value.
+    pub fn visible_settings(&self) -> Vec<usize> {
+        let all: Vec<_> = settings::settings().collect();
+        filtered(&self.settings_list.filter, &all, |s| format!("{} {} {}", s.label, s.hint, (s.value)(self)))
+    }
+
     pub fn boards(&self) -> &[Board] {
         self.sites.get(self.tab.site).and_then(|s| s.boards.as_deref()).unwrap_or(&[])
     }
@@ -842,7 +850,7 @@ impl App {
                 let (Some(s), site) = (&self.tab.search, &self.current_site().cfg.name) else { return Vec::new() };
                 self.visible_hits().into_iter().filter_map(|k| Some(RowKey::Hit(s.thread_of(k, site)?, s.hits.get(k)?.1.no))).collect()
             }
-            View::Settings => (0..settings::settings().count()).map(RowKey::Setting).collect(),
+            View::Settings => self.visible_settings().into_iter().map(RowKey::Setting).collect(),
             View::Thread => Vec::new(),
         }
     }
@@ -1850,6 +1858,12 @@ impl App {
             _ => View::Sites,
         };
         self.tab.navigate(to);
+        // Back to results from a thread opened on the live site: the archive searched.
+        if to == View::Search
+            && let Some(archive) = self.tab.search.as_ref().filter(|s| s.saved.is_none()).map(|s| s.archive)
+        {
+            self.switch_site(archive);
+        }
         // Back to the catalog the thread was opened from (an overboard's, maybe).
         if to == View::Catalog && from_catalog {
             self.tab.board = self.tab.catalog.board().cloned();

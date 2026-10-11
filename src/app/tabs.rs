@@ -246,17 +246,17 @@ impl App {
     pub fn tab_label(&self, i: usize) -> String {
         let t = self.tab_at(i);
         let board = t.board.as_ref().map_or("", |b| b.uri.as_str());
+        // With boards or threads of more than one site in tabs, a board or thread says which
+        // (4chan's /b/ isn't 2ch's, nor a thread its archive's copy).
+        let on_site = |o: &Tab| matches!(o.view(), View::Catalog | View::Thread);
+        let site = self.sites.get(t.site).filter(|_| on_site(t) && (0..self.tabs.len()).map(|j| self.tab_at(j)).any(|o| on_site(o) && o.site != t.site));
+        let (site, of_site) = site.map_or((String::new(), String::new()), |s| (format!("{} ", s.cfg.name), format!("{}: ", s.cfg.name)));
         match t.view() {
             View::Thread => match &t.thread {
-                Some(th) => thread_subject(&th.posts),
-                None => format!("/{board}/{}", t.pending_thread.as_ref().map_or(0, |k| k.no)),
+                Some(th) => format!("{of_site}{}", thread_subject(&th.posts)),
+                None => format!("{site}/{board}/{}", t.pending_thread.as_ref().map_or(0, |k| k.no)),
             },
-            // With boards or threads of more than one site in tabs, a board says which (4chan's
-            // /b/ isn't 2ch's).
-            View::Catalog => match self.sites.get(t.site).filter(|_| (0..self.tabs.len()).map(|j| self.tab_at(j)).any(|o| matches!(o.view(), View::Catalog | View::Thread) && o.site != t.site)) {
-                Some(s) => format!("{} /{board}/", s.cfg.name),
-                None => format!("/{board}/"),
-            },
+            View::Catalog => format!("{site}/{board}/"),
             View::Boards => self.sites.get(t.site).map_or(String::new(), |s| s.cfg.name.clone()),
             View::Search => t.search.as_ref().map_or_else(|| "Search".into(), |s| format!("Search: {}", s.query)),
             View::Sites => "Sites".into(),

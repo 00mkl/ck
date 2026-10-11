@@ -106,7 +106,7 @@ impl App {
             ("watched", ..) => self.tab.navigate(View::Watched),
             ("history", ..) => self.tab.navigate(View::History),
             ("saved", Some(board), Some(no)) => {
-                let open = Opening { select: p.selected, conversation: p.conversation, restoring: false };
+                let open = Opening { select: p.selected, conversation: p.conversation, ..Opening::default() };
                 self.open_saved(&crate::store::ThreadKey { site: p.site.clone(), board: board.uri, no }, open);
             }
             ("saved", ..) => self.tab.navigate(View::Saved),
@@ -118,7 +118,7 @@ impl App {
                 self.load_catalog();
             }
             ("thread", Some(board), Some(no)) => {
-                self.open_thread_at(board, no, Opening { select: p.selected, conversation: p.conversation, restoring: true });
+                self.open_thread_at(board, no, Opening { select: p.selected, conversation: p.conversation, restoring: true, ..Opening::default() });
             }
             _ => self.tab.navigate(View::Sites),
         }

@@ -419,7 +419,7 @@ impl App {
             Action::Quit => self.quit = true,
             Action::Help => self.popup = Some(Popup::Help(ListState::default())),
             Action::Settings => self.tab.navigate(View::Settings),
-            Action::Search if matches!(self.tab.view(), View::Settings | View::Search) => {}
+            Action::Search if self.tab.view() == View::Search => {}
             Action::Search if self.tab.view() == View::Thread => {
                 if let Some(t) = &mut self.tab.thread {
                     t.set_search(String::new());
