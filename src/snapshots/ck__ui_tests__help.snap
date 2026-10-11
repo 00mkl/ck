@@ -26,9 +26,9 @@ expression: snapshot(&mut a)
        trash    backspace          back
        ptcha    f5                 reload
        erisc    home               top
-       junku    g                  gg: top (10gg, 10g: the tenth)
-       nukec    G, end             bottom (10G: the tenth)
-       palan    0-9                a count (home: a favorite)
+       junku    g                  gg: top (10gg: the tenth); gt gT: next, previous
+       nukec                       tab (3gt: the third)
+       palan    G, end             bottom (10G: the tenth)
        b4k                                                                  ↓ more (j)
 
  enter open   . more   / filter   o browser   R reload   , settings   ? help              1/26  3%

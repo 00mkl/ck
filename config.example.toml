@@ -22,7 +22,8 @@
 #
 # vichan sites may set `post_url` when posts go to another host (8kun's sys.8kun.top).
 #
-# `archive` names another site (a FoolFuuka archive) to offer when a thread 404s.
+# `archives` names other sites (FoolFuuka archives) that keep its old threads, in order: archive
+# search (. A) and a thread that 404s use the first that has the board.
 #
 # `boards` entries are either a bare URI ("g") or { uri = "g", title = "Technology" }.
 #
@@ -102,6 +103,11 @@ page_cache_mb = 100
 # 0 lets it reach the edge. Also in Settings.
 scroll_margin = 0.3
 
+# Threads, catalogs (cards and compact) and search results are at most this many columns
+# wide, centered on a wider screen: long lines are hard to read. 0 uses the whole width.
+# Also in Settings.
+text_width = 140
+
 # Reading the last post of a thread, posts a refresh brings come into view: the first new one
 # is selected, as `j` would. Elsewhere in the thread nothing moves, and the top bar says how
 # many new posts are below. Also in Settings.
@@ -136,7 +142,7 @@ watched_first = false
 [[site]]
 name = "4chan"
 kind = "4chan"
-archive = "desuarchive"
+archives = ["desuarchive", "palanq", "b4k"]
 
 [[site]]
 name = "lainchan"
@@ -360,13 +366,14 @@ url = "https://arch.b4k.dev"
 # character ("w", "W", ":"), ctrl-/alt- with one ("ctrl-w", "alt-x"), or a named key (tab,
 # shift-tab, enter, esc, backspace, delete, insert, up, down, left, right, home, end,
 # pageup, pagedown, space, f1-f12). Settings (`,`) has a key editor that saves here.
-# Navigation keys are fixed: j/k/h/l, g/G, J/K, z, digits (counts), arrows, enter, esc,
-# space, ctrl-d/u/e/y/f/b.
+# Navigation keys are fixed: j/k/h/l, g/G, J/K, H/M/L, z, m and ' (marks), digits (counts),
+# arrows, enter, esc, space, ctrl-d/u/e/y/f/b.
 # Actions and their defaults (the less used have no key, but a letter in the . menu, or for
 # what the view shows the c menu, which a key given here wins over):
 #   everywhere: quit = "q", help = "?", search = "/", reload = "R", browser = "o", settings = ",",
 #               goto = ":", next_tab = "]", prev_tab = "[", close_tab = "ctrl-w", menu = ".",
-#               watched = "W", hints = "f"; in the . menu: jump_back (u), jump_forward (ctrl-r)
+#               watched = "W", hints = "f", jump_back = "ctrl-o", alternate = "ctrl-^";
+#               in the . menu: jump_forward (ctrl-r)
 #   catalog:    reply = "r", watch = "w", show = "c", copy = "y", favorite = "*"
 #   thread:     reply = "r", watch = "w", show = "c", copy = "y", next_part = "tab",
 #               prev_part = "shift-tab", preview = "p", next_match = "n", prev_match = "N",

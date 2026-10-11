@@ -1,7 +1,7 @@
 //! Tabs: each is a place (view, site, board, catalog, thread, ...) of its own. The active
 //! tab is `App::tab`; the others wait in `App::tabs`, and switching swaps them in and out.
 
-use super::{App, LinksPanel, Opening, Preview, Tab, View, Viewer, thread_subject};
+use super::{App, LinksPanel, Opening, Preview, Tab, ThreadView, View, Viewer, thread_subject};
 use crate::model::Board;
 use crate::store::ThreadKey;
 
@@ -65,7 +65,9 @@ impl App {
     pub(super) fn handle_in_tab(&mut self, i: usize, apply: Box<dyn FnOnce(&mut App) + Send>) {
         let (active, before) = (self.active, self.footer.clone());
         self.switch_tab(i);
+        self.behind = true;
         apply(self);
+        self.behind = false;
         self.switch_tab(active);
         // What happens in other tabs isn't news here.
         self.footer = before;
@@ -133,6 +135,28 @@ impl App {
     pub(super) fn show_tab(&mut self, i: usize) {
         self.switch_tab(i);
         self.footer.clear_seen();
+        self.tab_shown();
+    }
+
+    /// Show the other tab that has thread `key` open (or opening), if one does.
+    pub(super) fn show_open(&mut self, key: &ThreadKey) -> bool {
+        let has = |t: &Tab| t.thread.as_ref().map(ThreadView::key).or(t.pending_thread.as_ref()) == Some(key);
+        let Some(i) = self.tabs.iter().enumerate().position(|(i, t)| i != self.active && has(t)) else { return false };
+        self.show_tab(i);
+        self.info(format!("Tab {} has it open", i + 1));
+        true
+    }
+
+    /// The tab is shown: a thread it fetched while it wasn't is read now.
+    fn tab_shown(&mut self) {
+        if !std::mem::take(&mut self.tab.unvisited) {
+            return;
+        }
+        let Some(t) = &self.tab.thread else { return };
+        let (key, subject) = (t.key().clone(), thread_subject(&t.posts));
+        let max_no = t.posts.iter().map(|p| p.no).max().unwrap_or(0);
+        self.store.visit(&key, &subject, t.posts.len(), max_no, self.clock.now());
+        self.save();
     }
 
     /// Close the active tab (not the last one).
@@ -149,6 +173,7 @@ impl App {
         if to > old {
             self.active -= 1;
         }
+        self.tab_shown();
     }
 
     /// Every tab's place, for the session.

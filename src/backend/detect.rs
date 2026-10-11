@@ -230,7 +230,7 @@ impl Asking<'_> {
             url: Some(self.link.base.clone()),
             boards,
             thumb_ext: None,
-            archive: None,
+            archives: Vec::new(),
             media_url: None,
             post_url: None,
         }

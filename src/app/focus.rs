@@ -99,7 +99,7 @@ impl App {
         self.tab.popup = Some(TabPopup::Viewer(Viewer::new(files, k, link)));
     }
 
-    /// A quote link: the post, when it's in this thread (`u` comes back); else where it leads.
+    /// A quote link: the post, when it's in this thread (ctrl-o comes back); else where it leads.
     fn go_to_quote(&mut self, l: &Link) {
         if let Some(t) = &mut self.tab.thread
             && let Some(n) = l.post
@@ -287,7 +287,7 @@ impl App {
         (title, items, rows)
     }
 
-    /// Whether `u` has somewhere to go back to: an earlier post still here, or the thread
+    /// Whether ctrl-o has somewhere to go back to: an earlier post still here, or the thread
     /// before.
     pub(crate) fn can_jump_back(&self) -> bool {
         self.tab.thread.as_ref().is_some_and(|t| t.jumps.iter().any(|no| t.index.contains_key(no))) || !self.tab.trail.is_empty()
@@ -433,7 +433,7 @@ impl App {
         if let Some(row) = self.board_images_row() {
             items.push(MenuItem::Act(A::BoardImages, row));
         }
-        if self.archive_site().is_some() {
+        if !self.archives_of(self.tab.site).is_empty() {
             items.push(act(A::ArchiveSearch, "search the board's archive"));
         }
         items.push(act(A::Search, "filter the threads"));
@@ -565,7 +565,7 @@ impl App {
             items.push(act(A::PrevTab, "previous tab"));
             items.push(act(A::CloseTab, "close the tab"));
         }
-        items.push(act(A::Goto, "go to a URL or site/board/thread"));
+        items.push(act(A::Goto, "a command (:tabnew, :marks, …) or a place to go to"));
         items.push(act(A::Settings, "settings"));
         items.push(act(A::Help, "every key"));
         items.push(act(A::Quit, "quit"));

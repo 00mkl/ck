@@ -654,34 +654,36 @@ fn vim_counts_prefixes_and_the_jump_list() {
     let keys = |app: &mut App, keys: &str| keys.chars().for_each(|c| app.on_key(KeyEvent::from(KeyCode::Char(c))));
     // A count repeats a move; the footer shows it while it waits.
     keys(&mut app, "3");
-    assert_eq!(app.pending.and_then(Pending::shown).as_deref(), Some("3"));
+    assert_eq!(app.pending.map(Pending::shown).as_deref(), Some("3"));
     keys(&mut app, "j");
-    assert_eq!((at(&app), app.pending.and_then(Pending::shown)), (4, None));
+    assert_eq!((at(&app), app.pending.map(Pending::shown)), (4, None));
     // 7G goes to the seventh post, gg to the first, G to the last: as the ruler says.
     keys(&mut app, "7G");
     assert_eq!(at(&app), 7);
-    // Vim's 3gg is 3g with a g after it that changes nothing.
-    keys(&mut app, "3gg");
-    assert_eq!((at(&app), app.pending.and_then(Pending::shown)), (3, None));
+    // 3gg: the third post (3g waits for its second key, g or t).
+    keys(&mut app, "3g");
+    assert_eq!((at(&app), app.pending.map(Pending::shown).as_deref()), (7, Some("3g")));
+    keys(&mut app, "g");
+    assert_eq!((at(&app), app.pending.map(Pending::shown)), (3, None));
     keys(&mut app, "gg");
     assert_eq!((at(&app), app.position()), (1, Some((1, 10))));
     keys(&mut app, "G");
     assert_eq!(app.position(), Some((10, 10)));
     // A key that doesn't finish a prefix drops it and acts as itself.
     keys(&mut app, "gk");
-    assert_eq!((at(&app), app.pending.and_then(Pending::shown)), (9, None));
+    assert_eq!((at(&app), app.pending.map(Pending::shown)), (9, None));
     keys(&mut app, "j");
     // Esc drops a waiting count, and only that.
     keys(&mut app, "5");
     app.on_key(KeyEvent::from(KeyCode::Esc));
-    assert_eq!((app.tab.view(), app.pending.and_then(Pending::shown)), (View::Thread, None));
+    assert_eq!((app.tab.view(), app.pending.map(Pending::shown)), (View::Thread, None));
     // G isn't a jump to come back from: back leaves the thread.
     assert!(!app.tab.thread.as_mut().unwrap().jump_back());
-    // W: the watched threads, the thread left on the jump list; the menu's u comes back to
-    // it, where it was left.
+    // W: the watched threads, the thread left on the jump list; ctrl-o comes back to it,
+    // where it was left.
     keys(&mut app, "W");
     assert_eq!(app.tab.view(), View::Watched);
-    keys(&mut app, ".u");
+    app.on_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL));
     assert_eq!((app.tab.view(), app.tab.pending_thread.as_ref().unwrap().no, app.tab.opening().select), (View::Thread, 1, Some(10)));
 }
 
@@ -1363,7 +1365,7 @@ fn gallery_of_the_threads_files() {
 #[test]
 fn archive_search_and_back() {
     let mut app = app_with(
-        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchive = \"arch\"\n\
+        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchives = [\"arch\"]\n\
          [[site]]\nname = \"arch\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"\nboards = [\"g\"]",
     );
     app.tab.board = Some(Board { uri: "g".into(), title: String::new(), nsfw: None });
@@ -1398,7 +1400,7 @@ fn archive_search_and_back() {
     assert_eq!((app.tab.view(), app.tab.site, app.tab.search.is_none()), (View::Catalog, 0, true));
     // Sites without an archive say so.
     drawn(&mut app);
-    app.sites[0].cfg.archive = None;
+    app.sites[0].cfg.archives.clear();
     app.act(Action::ArchiveSearch);
     assert!(app.typing.is_none() && app.footer.get().unwrap().text.contains("no archive"));
 }
@@ -1406,7 +1408,7 @@ fn archive_search_and_back() {
 #[test]
 fn search_results_leave_out_hidden_posts() {
     let mut app = app_with(
-        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchive = \"arch\"\n\
+        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchives = [\"arch\"]\n\
          [[site]]\nname = \"arch\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"\nboards = [\"g\"]",
     );
     app.tab.board = Some(Board { uri: "g".into(), title: String::new(), nsfw: None });
@@ -1627,6 +1629,35 @@ fn tabs_keep_their_own_place_and_responses() {
     app.tabs.truncate(1);
     app.handle(answer(stale, thread_arrived, arrived(vec![Post { no: 9, ..Default::default() }])));
     assert!(app.tab.thread.is_none());
+}
+
+#[test]
+fn a_thread_in_a_tab_not_shown_is_read_once_it_is() {
+    let mut app = local_app();
+    let post = |no| Post { no, ..Default::default() };
+    app.goto_str("a/x/1");
+    app.handle(answer(app.tab.req().unwrap(), thread_arrived, arrived(vec![post(1)])));
+    // A second tab (as a restored one would be) whose thread arrives while the first shows.
+    app.tabs.push(Tab::new(0, Instant::now()));
+    app.switch_tab(1);
+    app.goto_str("a/x/2");
+    let req = app.tab.req().unwrap();
+    app.switch_tab(0);
+    app.handle(answer(req, thread_arrived, arrived(vec![post(2), post(3)])));
+    let history = |app: &App| app.store.history.iter().map(|v| v.key.no).collect::<Vec<_>>();
+    let two = ThreadKey { site: "a".into(), board: "x".into(), no: 2 };
+    assert_eq!((history(&app), app.store.last_seen(&two)), (vec![1], 0));
+    // Shown, it's read.
+    app.on_key(KeyEvent::from(KeyCode::Char(']')));
+    assert_eq!((app.active, history(&app), app.store.last_seen(&two)), (1, vec![2, 1], 3));
+    // Opening it from History in the other tab goes to the tab that has it.
+    app.on_key(KeyEvent::from(KeyCode::Char(']')));
+    app.tab.navigate(View::History);
+    app.pick_row(View::History, 0);
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert_eq!((app.tabs.len(), app.active, app.tab.thread.as_ref().unwrap().key().no), (2, 1, 2));
+    app.switch_tab(0);
+    assert_eq!(app.tab.view(), View::History);
 }
 
 #[test]
@@ -4233,7 +4264,7 @@ fn unwatching_a_thread_forgets_which_posts_are_yours() {
 #[test]
 fn a_tab_searching_the_archive_keeps_its_catalog_and_thread_hidden() {
     let mut app = app_with(
-        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchive = \"arch\"\n\
+        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchives = [\"arch\"]\n\
          [[site]]\nname = \"arch\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"\nboards = [\"g\"]",
     );
     app.tab.board = Some(Board { uri: "g".into(), title: String::new(), nsfw: None });
@@ -4791,7 +4822,7 @@ fn a_site_that_cant_be_asked_is_said_in_plain_words() {
 fn an_archive_search_that_fails_is_said_in_plain_words() {
     let plain = crate::http::plain(&unreachable_request());
     let mut app = app_with(
-        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchive = \"arch\"\n\
+        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchives = [\"arch\"]\n\
          [[site]]\nname = \"arch\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"\nboards = [\"g\"]",
     );
     app.tab.board = Some(Board { uri: "g".into(), title: String::new(), nsfw: None });
@@ -5115,7 +5146,7 @@ fn a_new_boards_first_pages_show_none_of_the_last_boards_new_threads() {
 #[test]
 fn a_session_saved_during_an_archive_search_is_the_board_searched_from() {
     let mut app = app_with(
-        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchive = \"arch\"\n\
+        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchives = [\"arch\"]\n\
          [[site]]\nname = \"arch\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"\nboards = [\"g\"]",
     );
     app.tab.board = Some(Board { uri: "g".into(), title: String::new(), nsfw: None });
@@ -5382,13 +5413,15 @@ fn back_to_history_keeps_the_thread_that_was_opened() {
 fn a_thread_loaded_in_another_tab_leaves_the_history_selection_alone() {
     let (mut app, _) = history_app();
     app.pick_row(View::History, 1);
+    let first = app.store.history.first().map(|h| h.key.no);
     app.tabs.push(Tab::new(0, Instant::now()));
     app.switch_tab(1);
     app.goto_str("a/x/1");
     let req = app.tab.req().unwrap();
     app.switch_tab(0);
     app.handle(answer(req, thread_arrived, arrived(nos(&[1, 2]))));
-    assert_eq!(app.store.history.first().map(|h| h.key.no), Some(1));
+    // Not read yet (its tab isn't shown), so not in History yet either.
+    assert_eq!(app.store.history.first().map(|h| h.key.no), first);
     assert_eq!(app.selected_listed().map(|(k, _)| k.no), Some(2));
 }
 
@@ -5626,4 +5659,225 @@ fn a_board_opened_early_gets_its_title_and_slashes_filter_boards() {
         app.tab.board_list.filter = filter.into();
         assert_eq!(app.visible_boards(), found, "{filter}");
     }
+}
+
+fn press(app: &mut App, keys: &str) {
+    keys.chars().for_each(|c| app.on_key(KeyEvent::from(KeyCode::Char(c))));
+}
+
+fn ctrl(c: char) -> KeyEvent {
+    KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+}
+
+/// `ma` marks a post, `'a` comes back to it and `''` to where that jumped from; an
+/// uppercase mark is found from another thread. `:marks` lists them, `:delmarks` forgets.
+#[test]
+fn marks_come_back_to_posts_from_anywhere() {
+    let mut app = fourchan_thread(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    let at = |app: &App| app.tab.thread.as_ref().unwrap().current().unwrap().no;
+    let first = app.tab.thread.as_ref().unwrap().key().clone();
+    press(&mut app, "4Gma6GmBG");
+    assert_eq!(at(&app), 10);
+    press(&mut app, "'a");
+    assert_eq!(at(&app), 4);
+    press(&mut app, "''");
+    assert_eq!(at(&app), 10, "'' goes back where 'a jumped from");
+    press(&mut app, "m1");
+    assert!(app.footer.get().unwrap().text.contains("a letter"));
+    assert!(app.run_command("marks"));
+    let listed = app.footer.get().unwrap().text.clone();
+    assert!(listed.contains("a No.4") && listed.contains("B No.6"), "{listed}");
+    // Another thread: a lowercase mark is the first thread's, an uppercase one opens it.
+    app.follow(&crate::model::Link { board: None, thread: Some(99), post: None });
+    press(&mut app, "'a");
+    assert_eq!(app.tab.pending_thread.as_ref().unwrap().no, 99);
+    press(&mut app, "'B");
+    assert_eq!((app.tab.pending_thread.as_ref(), app.tab.opening().select), (Some(&first), Some(6)));
+    // Kept with the store, and forgotten by name.
+    assert_eq!(app.store.recall.marks.len(), 2);
+    assert!(app.run_command("delmarks B"));
+    assert_eq!(app.store.recall.marks.iter().map(|m| m.name).collect::<Vec<_>>(), ['a']);
+}
+
+/// `gt` / `gT` go through the tabs, `3gt` to the third; `:tabnew` opens one.
+#[test]
+fn gt_goes_through_the_tabs() {
+    let mut app = local_app();
+    // Not on the home screen, where digits are favorites.
+    assert!(app.run_command("e a/x") && app.run_command("tabnew a/x") && app.run_command("tabnew"));
+    assert_eq!((app.tabs.len(), app.active, app.tab.view()), (3, 2, View::Sites));
+    press(&mut app, "gt");
+    assert_eq!(app.active, 0);
+    press(&mut app, "3gt");
+    assert_eq!(app.active, 2);
+    press(&mut app, "gT");
+    assert_eq!((app.active, app.tab.view()), (1, View::Catalog));
+    press(&mut app, "gT");
+    press(&mut app, "5gt");
+    assert_eq!(app.active, 0);
+    assert!(app.footer.get().unwrap().text.contains("no tab 5"));
+}
+
+/// `H`, `M`, `L`: the post at the top, middle or bottom of the screen, without scrolling;
+/// in a list, the row.
+#[test]
+fn h_m_l_select_what_is_on_screen() {
+    let mut app = thread_app_of(60);
+    press(&mut app, "20G");
+    draw_at(&mut app, 100, 80);
+    let t = |app: &App| (app.tab.thread.as_ref().unwrap().scroll, app.tab.thread.as_ref().unwrap().current().unwrap().no);
+    let (scroll, _) = t(&app);
+    press(&mut app, "H");
+    let top = t(&app).1;
+    press(&mut app, "L");
+    let bottom = t(&app).1;
+    press(&mut app, "M");
+    let middle = t(&app).1;
+    assert!(top < middle && middle < bottom, "{top} {middle} {bottom}");
+    press(&mut app, "2H");
+    assert_eq!(t(&app), (scroll, top + 1), "the second from the top, nothing scrolled");
+    // A list: its rows on screen.
+    let mut app = test_app();
+    draw_at(&mut app, 80, 12);
+    press(&mut app, "L");
+    let last = app.selected_row(View::Sites).unwrap();
+    assert!(last > 3, "{last}");
+    press(&mut app, "H");
+    assert_eq!(app.selected_row(View::Sites), Some(0));
+}
+
+/// ctrl-^ opens the thread read before this one; ctrl-6 is how terminals send it.
+#[test]
+fn ctrl_caret_opens_the_thread_read_before() {
+    let (mut app, key) = history_app();
+    app.on_key(ctrl('6'));
+    assert_eq!(app.tab.pending_thread.as_ref(), Some(&key(3)), "the newest, from a list");
+    app.tab.thread = Some(ThreadView::new(key(3), posts_upto(3)));
+    app.tab.thread.as_mut().unwrap().select(2);
+    app.tab.navigate(View::Thread);
+    app.on_key(ctrl('^'));
+    assert_eq!(app.tab.pending_thread.as_ref(), Some(&key(2)), "from thread 3, the one before it");
+    // And back, at the post it was on.
+    app.store.visit(&key(2), "thread 2", 1, 2, 4);
+    app.tab.thread = Some(ThreadView::new(key(2), posts_upto(2)));
+    app.on_key(ctrl('^'));
+    assert_eq!((app.tab.pending_thread.as_ref(), app.tab.opening().select), (Some(&key(3)), Some(3)));
+}
+
+/// `:` runs commands (any by its `[keys]` name), else goes where it says; up brings back
+/// what was typed before.
+#[test]
+fn the_command_line_runs_commands_and_remembers_them() {
+    let mut app = local_app();
+    let enter = |app: &mut App, line: &str| {
+        app.act(Action::Goto);
+        type_text(app, line);
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+    };
+    enter(&mut app, "watched");
+    assert_eq!(app.tab.view(), View::Watched);
+    enter(&mut app, "export");
+    assert!(app.footer.get().unwrap().text.contains("doesn't work here"));
+    enter(&mut app, "set");
+    assert_eq!(app.tab.view(), View::Settings);
+    enter(&mut app, "colorscheme nope");
+    assert!(app.footer.get().is_some_and(|f| f.text.contains("nope")));
+    enter(&mut app, "a/x");
+    assert_eq!(app.tab.view(), View::Catalog);
+    // Up: the newest line first, then older ones; down comes back to what was typed.
+    app.act(Action::Goto);
+    type_text(&mut app, "s");
+    app.on_key(KeyEvent::from(KeyCode::Up));
+    assert_eq!(app.goto_text(), Some("set"));
+    app.on_key(KeyEvent::from(KeyCode::Down));
+    assert_eq!(app.goto_text(), Some("s"));
+    // Tab completes a command.
+    type_text(&mut app, "et");
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    app.act(Action::Goto);
+    type_text(&mut app, "tabc");
+    app.on_key(KeyEvent::from(KeyCode::Tab));
+    assert_eq!(app.goto_text(), Some("tabclose"));
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    enter(&mut app, "q");
+    assert!(app.quit);
+}
+
+/// A prefix waiting a moment shows what can follow it; at once, nothing (`gg` typed fast
+/// doesn't flash a panel).
+#[test]
+fn a_waiting_prefix_shows_what_can_follow() {
+    let mut app = fourchan_thread(&[1, 2, 3]);
+    let start = Instant::now();
+    app.clock.instant = Some(start);
+    press(&mut app, "g");
+    assert!(app.next_keys().is_none());
+    app.clock.instant = Some(start + NEXT_KEYS_AFTER);
+    let rows = app.next_keys().unwrap();
+    assert!(rows.iter().any(|(k, what)| k == "t" && what.contains("next tab")), "{rows:?}");
+    press(&mut app, "g");
+    assert!(app.next_keys().is_none());
+}
+
+/// An archive search where no archive is known to keep the board asks them in turn: none
+/// that does is said; the one that does shows its results, from that board only.
+#[test]
+fn an_archive_search_uses_an_archive_that_keeps_the_board() {
+    let mut app = app_with(
+        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"tv\"]\narchives = [\"one\", \"two\"]\n\
+         [[site]]\nname = \"one\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"\n\
+         [[site]]\nname = \"two\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"",
+    );
+    let board = |uri: &str| Board { uri: uri.into(), title: String::new(), nsfw: None };
+    app.tab.board = Some(board("tv"));
+    app.tab.navigate(View::Catalog);
+    let back = (0, Some(board("tv")), View::Catalog);
+    let names = ["one".to_string(), "two".to_string()];
+    app.archive_searched("tv".into(), "x".into(), back.clone(), &names, Ok((vec![(1, vec![board("g")]), (2, vec![board("a")])], None)));
+    assert_eq!(app.tab.view(), View::Catalog);
+    assert!(app.footer.get().unwrap().text.contains("None of the archives (one, two) keeps /tv/"));
+    // What it learned is kept: the next search asks no one.
+    assert_eq!(app.archive_for(0, "g"), Some(1));
+    assert_eq!(app.archive_for(0, "tv"), None);
+    // Found on the second: its results, those on other boards left out.
+    let mut page = crate::backend::foolfuuka::parse_search(&crate::backend::fixture("foolfuuka_search.json")).unwrap();
+    page.hits[0].1.board = Some("tv".into());
+    app.archive_searched("tv".into(), "x".into(), back, &names, Ok((Vec::new(), Some((2, page)))));
+    assert_eq!((app.tab.view(), app.tab.site, app.tab.search.as_ref().unwrap().hits.len()), (View::Search, 2, 1));
+}
+
+/// A quote of a post in another thread is drawn with an arrow; `p` fetches that thread and
+/// shows the post, and enter goes there.
+#[test]
+fn quotes_of_other_threads_are_marked_and_previewed() {
+    let mut app = thread_app();
+    app.set_thread(vec![post(1, 60, None, "op"), post(2, 30, None, r#"<a href="/x/thread/500#p501" class="quotelink">&gt;&gt;501</a><br><a href="\#p1" class="quotelink">&gt;&gt;1</a> hi"#)]);
+    let screen = format!("{:?}", draw_at(&mut app, 100, 30));
+    assert!(screen.contains(">>501 →") && !screen.contains(">>1 →"), "{screen}");
+    app.tab.thread.as_mut().unwrap().select(1);
+    app.on_key(KeyEvent::from(KeyCode::Char('p')));
+    let quoted = |app: &App| match &app.tab.popup {
+        Some(TabPopup::Preview(p)) => p.elsewhere.iter().map(|(l, q)| (l.post, matches!(q, Quoted::Found(_)))).collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    assert_eq!(quoted(&app), [(Some(501), false)]);
+    app.quoted_fetched("x", 500, &Ok(vec![post(500, 90, None, "the op"), post(501, 80, None, "quoted")]));
+    assert_eq!(quoted(&app), [(Some(501), true)]);
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert_eq!(app.tab.view(), View::Thread);
+}
+
+/// A thread is at most `text_width` columns wide, centered.
+#[test]
+fn a_thread_on_a_wide_screen_keeps_to_its_width() {
+    let mut app = thread_app_of(5);
+    draw_at(&mut app, 200, 30);
+    let area = |app: &App| match app.drawn().and_then(|d| d.body) {
+        Some(Hit::Thread { area, .. }) => area,
+        _ => Rect::default(),
+    };
+    assert_eq!((area(&app).width, area(&app).x > 20), (140, true));
+    app.text_width = 0;
+    draw_at(&mut app, 200, 30);
+    assert!(area(&app).width > 190);
 }

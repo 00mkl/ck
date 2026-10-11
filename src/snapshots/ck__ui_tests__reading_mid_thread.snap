@@ -2,7 +2,7 @@
 source: src/ui_tests.rs
 expression: snapshot(&mut a)
 ---
- ck  4chan  ›  /g/  ›  Thread 2000                                                         60 posts
+ ck  4chan  ›  /g/  ›  post 0                                                              60 posts
 
 
     post 11

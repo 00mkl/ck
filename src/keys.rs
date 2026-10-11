@@ -100,7 +100,7 @@ actions! {
     Search, "search", key('/'), &[Scope::Global], "filter the list; search a thread";
     Reload, "reload", key('R'), &[Scope::Global], "reload";
     Browser, "browser", key('o'), &[Scope::Global], "open in the browser";
-    Goto, "goto", key(':'), &[Scope::Global], "go to a URL or site/board/thread";
+    Goto, "goto", key(':'), &[Scope::Global], "a command (:tabnew, :export, ...) or a URL or site/board/thread to go to";
     NextTab, "next_tab", key(']'), &[Scope::Global], "next tab";
     PrevTab, "prev_tab", key('['), &[Scope::Global], "previous tab";
     Menu, "menu", key('.'), &[Scope::Global, Scope::Gallery, Scope::Viewer], "everything you can do with what's selected";
@@ -120,8 +120,9 @@ actions! {
     Copy, "copy", key('y'), &[Scope::Catalog, Scope::Thread, Scope::Saved, Scope::Gallery, Scope::Viewer], "copy the text (a focused link or file: its URL)";
     Favorite, "favorite", key('*'), &[Scope::Lists, Scope::Catalog], "favorite board: on / off";
     Remove, "remove", key('x'), &[Scope::Saved, Scope::Lists], "remove the entry (home: a favorite)";
-    JumpBack, "jump_back", menu('u'), &[Scope::Global], "back to the thread you left";
+    JumpBack, "jump_back", Bind::Key(Key::ctrl('o')), &[Scope::Global], "back where you jumped from: the post, or the thread you left";
     JumpForward, "jump_forward", Bind::Menu(Key::ctrl('r')), &[Scope::Global], "forward again, after going back";
+    Alternate, "alternate", Bind::Key(Key::ctrl('^')), &[Scope::Global], "the thread you read before this one (again: back)";
     View, "view", menu('v'), &[Scope::Catalog, Scope::Thread, Scope::Gallery], "view the post's images";
     OpenFile, "open_file", menu('i'), &[Scope::Thread, Scope::Viewer], "open the file outside ck (videos in mpv)";
     Replies, "replies", menu('b'), &[Scope::Thread], "jump to the first reply";
@@ -183,6 +184,17 @@ impl Action {
         self.spec().2
     }
 
+    /// Whether it does something in `place`.
+    pub fn applies_in(self, place: Scope) -> bool {
+        self.scopes().iter().any(|s| s.covers(place))
+    }
+
+    /// The action named `name` in `[keys]` (or with `-` for `_`, as `:download-thread`).
+    pub fn named(name: &str) -> Option<Action> {
+        let name = name.replace('-', "_");
+        Action::ALL.iter().copied().find(|a| a.name() == name)
+    }
+
     pub fn what(self) -> &'static str {
         self.spec().3
     }
@@ -205,7 +217,8 @@ impl<'de> Deserialize<'de> for Action {
 
 /// A key with its modifiers: `w`, `W`, `ctrl-w`, `alt-x`, `tab`, `shift-tab`, `f5`, ...
 /// Read from a terminal event or parsed, the same way: shift is part of a character (`W`)
-/// and only kept for tab (`shift-tab`), and ctrl-i is tab, as terminals send it.
+/// and only kept for tab (`shift-tab`), ctrl-i is tab and ctrl-6 is ctrl-^, as terminals send
+/// them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Key {
     code: KeyCode,
@@ -247,6 +260,8 @@ impl Key {
     fn new(code: KeyCode, mods: KeyModifiers) -> Self {
         match (code, mods & (KeyModifiers::CONTROL | KeyModifiers::ALT)) {
             (KeyCode::Char('i'), KeyModifiers::CONTROL) => Self::code(KeyCode::Tab),
+            // Terminals send ctrl-^ as ctrl-6 (and some ctrl-~ or ctrl-shift-6).
+            (KeyCode::Char('6' | '~'), KeyModifiers::CONTROL) => Self::ctrl('^'),
             (code, mods) => Self { code, mods },
         }
     }
@@ -344,6 +359,13 @@ pub enum Nav {
     G,
     /// `zz`, `zt` and `zb` put the post at the screen's middle, top or bottom.
     Z,
+    /// `H`, `M`, `L`: the post (or row) at the screen's top, middle or bottom.
+    ScreenTop,
+    ScreenMiddle,
+    ScreenBottom,
+    /// `ma`: mark the post as `a`; `'a`: back to it (`''`: where you jumped from).
+    Mark,
+    GoToMark,
     /// A count's (on the home screen, a favorite's).
     Digit,
     Refresh,
@@ -369,7 +391,7 @@ const FIXED: &[(&[Scope], Nav, &[Key], &str)] = &[
     (&[Scope::Global], Nav::Back, &[Key::code(KeyCode::Backspace)], "back"),
     (&[Scope::Global], Nav::Refresh, &[Key::code(KeyCode::F(5))], "reload"),
     (&[Scope::Global], Nav::Top, &[Key::code(KeyCode::Home)], "top"),
-    (&[Scope::Global], Nav::G, &[Key::char('g')], "gg: top (10gg, 10g: the tenth)"),
+    (&[Scope::Global], Nav::G, &[Key::char('g')], "gg: top (10gg: the tenth); gt gT: next, previous tab (3gt: the third)"),
     (&[Scope::Global], Nav::Bottom, &[Key::char('G'), Key::code(KeyCode::End)], "bottom (10G: the tenth)"),
     (&[Scope::Global], Nav::Digit, &[Key::char('0'), Key::char('1'), Key::char('2'), Key::char('3'), Key::char('4'), Key::char('5'), Key::char('6'), Key::char('7'), Key::char('8'), Key::char('9')], "a count (home: a favorite)"),
     (&[Scope::Global], Nav::HalfDown, &[Key::ctrl('d')], "half a page down (a list: 10 rows)"),
@@ -378,6 +400,11 @@ const FIXED: &[(&[Scope], Nav, &[Key], &str)] = &[
     (&[Scope::Global], Nav::PageUp, &[Key::ctrl('b')], "a page up"),
     (&[Scope::Global], Nav::LineDown, &[Key::ctrl('e')], "a line down (a list: a row)"),
     (&[Scope::Global], Nav::LineUp, &[Key::ctrl('y')], "a line up"),
+    (&[Scope::Global], Nav::ScreenTop, &[Key::char('H')], "the post or row at the top of the screen (3H: the third)"),
+    (&[Scope::Global], Nav::ScreenMiddle, &[Key::char('M')], "the post or row in the middle of the screen"),
+    (&[Scope::Global], Nav::ScreenBottom, &[Key::char('L')], "the post or row at the bottom of the screen"),
+    (&[Scope::Global], Nav::Mark, &[Key::char('m')], "ma: mark the post as a (mA: as A, found from any thread)"),
+    (&[Scope::Global], Nav::GoToMark, &[Key::char('\''), Key::char('`')], "'a: back to mark a; '': where you jumped from"),
     (LISTS, Nav::HalfDown, &[Key::code(KeyCode::PageDown)], "10 rows down"),
     (LISTS, Nav::HalfUp, &[Key::code(KeyCode::PageUp)], "10 rows up"),
     (&[Scope::Thread], Nav::PageDown, &[Key::char(' '), Key::code(KeyCode::PageDown)], "a page down"),

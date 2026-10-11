@@ -35,6 +35,10 @@ pub struct Config {
     /// screen, 0 to 0.5) from the screen's top and bottom.
     #[serde(default = "default_scroll_margin")]
     pub scroll_margin: f32,
+    /// Threads, catalogs and search results are at most this many columns wide, centered on
+    /// a wider screen (long lines are hard to read); 0: the screen's width.
+    #[serde(default = "default_text_width")]
+    pub text_width: u16,
     /// Sites left off the home screen (by name).
     #[serde(default)]
     pub hidden_sites: Vec<String>,
@@ -155,6 +159,10 @@ fn default_page_cache_mb() -> u64 {
 
 fn default_scroll_margin() -> f32 {
     0.3
+}
+
+fn default_text_width() -> u16 {
+    140
 }
 
 /// Catalog sort orders, cycled with `s`. Saved under their labels.
@@ -279,9 +287,10 @@ pub struct SiteConfig {
     /// vichan only: the site's fixed thumbnail extension (e.g. "png"), if it has one.
     #[serde(default)]
     pub thumb_ext: Option<String>,
-    /// Name of another configured site (a FoolFuuka archive) to offer when a thread 404s.
+    /// Other configured sites (FoolFuuka archives) that keep its threads, in order: archive
+    /// search and a thread that 404s use the first that has the board.
     #[serde(default)]
-    pub archive: Option<String>,
+    pub archives: Vec<String>,
     /// Base URL for files, when the site serves them from another host (makaba, vichan).
     #[serde(default)]
     pub media_url: Option<String>,
@@ -532,11 +541,14 @@ fn site_table(site: &SiteConfig) -> Table {
     let mut t = Table::new();
     t.insert("name", value(site.name.as_str()));
     t.insert("kind", value(site.kind.as_str()));
-    let optional = [("url", &site.url), ("thumb_ext", &site.thumb_ext), ("media_url", &site.media_url), ("archive", &site.archive)];
+    let optional = [("url", &site.url), ("thumb_ext", &site.thumb_ext), ("media_url", &site.media_url)];
     for (key, v) in optional {
         if let Some(v) = v {
             t.insert(key, value(v.as_str()));
         }
+    }
+    if !site.archives.is_empty() {
+        t.insert("archives", value(site.archives.iter().map(String::as_str).collect::<toml_edit::Array>()));
     }
     if let Some(boards) = &site.boards {
         t.insert("boards", value(boards_array(boards)));
@@ -824,7 +836,7 @@ mod tests {
             url: Some(format!("https://{name}.example")),
             boards,
             thumb_ext: None,
-            archive: None,
+            archives: Vec::new(),
             media_url: None,
             post_url: None,
         };

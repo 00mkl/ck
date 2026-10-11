@@ -39,6 +39,7 @@ macro_rules! take_popup {
     };
 }
 
+mod command;
 mod filters;
 mod focus;
 mod footer;
@@ -56,6 +57,7 @@ pub use goto::start_error;
 pub use loading::Whole;
 mod home;
 mod links;
+mod marks;
 mod list;
 pub use list::FilteredList;
 mod posting;
@@ -286,10 +288,19 @@ pub enum Typing {
 pub struct Preview {
     /// Numbers of the quoted posts in this thread (not indices: a refresh can drop posts).
     pub posts: Vec<u64>,
-    /// Quoted post numbers that aren't in this thread.
-    pub elsewhere: Vec<u64>,
+    /// Quoted posts that aren't in this thread, each fetched from its own (when the quote
+    /// says which).
+    pub elsewhere: Vec<(Link, Quoted)>,
     /// How far it's scrolled (as last drawn).
     pub scroll: ListState,
+}
+
+/// A quoted post from another thread, as the preview has it.
+pub enum Quoted {
+    Loading,
+    Found(Box<Post>),
+    /// Why it isn't shown (its thread unknown, gone, or not answering).
+    Missing(String),
 }
 
 /// Full-screen viewer over a post's files, or a thread's.
@@ -325,6 +336,9 @@ enum Msg {
     Wake,
 }
 
+/// How long a prefix (`g`, `z`, `m`, `'`) waits before what can follow it shows.
+pub const NEXT_KEYS_AFTER: Duration = Duration::from_millis(500);
+
 /// Keys typed toward a command, vim's way, waiting for the rest of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pending {
@@ -333,19 +347,23 @@ pub enum Pending {
     /// `g` or `z`, waiting for its second key (`gg`, `zz`).
     G,
     Z,
-    /// `10g` went to the tenth post at once: a `g` next is vim's `10gg`, and does nothing
-    /// more. Not shown.
-    CountedG,
+    /// `3g`, waiting for `g` (the third post) or `t` (the third tab).
+    CountG(NonZeroUsize),
+    /// `m` and `'`, waiting for the mark's letter.
+    Mark,
+    GoToMark,
 }
 
 impl Pending {
     /// As the footer shows it: "10", "g", "z".
-    pub fn shown(self) -> Option<String> {
+    pub fn shown(self) -> String {
         match self {
-            Pending::Count(n) => Some(n.to_string()),
-            Pending::G => Some("g".into()),
-            Pending::Z => Some("z".into()),
-            Pending::CountedG => None,
+            Pending::Count(n) => n.to_string(),
+            Pending::G => "g".into(),
+            Pending::Z => "z".into(),
+            Pending::CountG(n) => format!("{n}g"),
+            Pending::Mark => "m".into(),
+            Pending::GoToMark => "'".into(),
         }
     }
 }
@@ -462,6 +480,8 @@ pub struct App {
     pub pages: Option<crate::pages::Pages>,
     /// `scroll_margin`: where the selected post sits while reading (a fraction of the screen).
     pub scroll_margin: f32,
+    /// `text_width`: the most columns threads and catalogs take (0: the screen's).
+    pub text_width: u16,
     /// The config's `[[filter]]` tables, as last read or written (`filters` is made from them).
     pub filter_cfgs: Vec<crate::filter::FilterConfig>,
     /// `hidden_words`: posts with one are hidden everywhere.
@@ -469,6 +489,8 @@ pub struct App {
     /// The filter just added (and where): `u` as the next key takes it back.
     pub filter_undo: Option<filters::Undo>,
     footer: Footer,
+    /// An answer for a tab that isn't shown is being handled.
+    behind: bool,
     pub images: Images,
     /// Reverse image search engines (`R`), and the panel choosing one.
     pub image_search: Vec<crate::config::ImageSearch>,
@@ -495,6 +517,10 @@ pub struct App {
     pub typing: Option<Typing>,
     /// Keys typed toward a command, as vim takes them (shown in the footer while they wait).
     pub pending: Option<Pending>,
+    /// When `pending` last changed: a prefix waiting a moment shows what can follow it.
+    pub pending_since: Option<Instant>,
+    /// Going up and down the lines typed before (after `:` or `/`): where, and what was typed.
+    recalling: Option<(usize, String)>,
     pub keys: KeyMap,
     /// The last text copied to the clipboard, and the last URL opened.
     pub copied: Option<String>,
@@ -623,11 +649,13 @@ impl App {
             hidden_words: cfg.hidden_words.clone(),
             filter_cfgs: cfg.filters.clone(),
             scroll_margin: if cfg.scroll_margin.is_finite() { cfg.scroll_margin.clamp(0.0, 0.5) } else { 0.3 },
+            text_width: cfg.text_width,
             pages: crate::pages::Pages::default_dir()
                 .filter(|_| !cfg!(test) && cfg.page_cache_mb > 0)
                 .map(|d| crate::pages::Pages::new(d, cfg.page_cache_mb.saturating_mul(1024 * 1024))),
             filter_undo: None,
             footer: Footer::default(),
+            behind: false,
             popup: None,
             images: Images::new(picker, {
                 let tx = tx.clone();
@@ -648,6 +676,8 @@ impl App {
             session_saved: Instant::now(),
             typing: None,
             pending: None,
+            pending_since: None,
+            recalling: None,
             keys: cfg.keys,
             copied: None,
             opened: None,
@@ -940,6 +970,10 @@ impl App {
                 wake = wake.min(t.saturating_duration_since(now));
             }
         };
+        // A prefix waiting: what can follow it shows after a moment.
+        if let Some(since) = self.pending_since.filter(|_| self.pending.is_some_and(|p| !matches!(p, Pending::Count(_)))) {
+            after(since, NEXT_KEYS_AFTER);
+        }
         if let Some(since) = self.notes_since {
             after(since, Duration::from_secs(3));
         }
@@ -1389,6 +1423,9 @@ impl App {
 
     /// Open a thread from Watched or History, switching site and board as needed.
     fn open_key(&mut self, key: &ThreadKey) {
+        if self.show_open(key) {
+            return;
+        }
         let back = Some(self.tab.place_view());
         if self.open_thread_key(key, Opening::default()) {
             self.tab.return_to = back;
@@ -1469,14 +1506,14 @@ impl App {
         links.iter().filter(leaves).find(|l| l.post.is_some()).or_else(|| links.iter().find(leaves)).cloned()
     }
 
-    /// Remember the thread shown and its selected post, for `u` to come back to.
+    /// Remember the thread shown and its selected post, for ctrl-o to come back to.
     fn leave_trail(&mut self) {
         if let Some(here) = self.trail_here() {
             self.tab.remember(here);
         }
     }
 
-    /// The thread shown and its selected post, as `u` comes back to it.
+    /// The thread shown and its selected post, as ctrl-o comes back to it.
     fn trail_here(&self) -> Option<Trail> {
         self.tab.here()
     }
@@ -1507,7 +1544,7 @@ impl App {
         true
     }
 
-    /// Go where a quote link leads: a thread (remembered for `u`), a board, or a post whose
+    /// Go where a quote link leads: a thread (remembered for ctrl-o), a board, or a post whose
     /// thread the engine is asked for.
     fn follow(&mut self, link: &Link) {
         let Some(here) = &self.tab.board else { return };
@@ -1543,7 +1580,7 @@ impl App {
 
     /// The engine said which thread on `site`'s `board` the quoted `post` is in: open it
     /// there (only now moving to that site), leaving `trail`, where the lookup was asked
-    /// from, for `u`.
+    /// from, for ctrl-o.
     fn thread_found(&mut self, site: usize, board: Board, post: u64, trail: Option<Trail>, res: Result<Option<u64>>) {
         match res {
             Ok(Some(no)) => {
@@ -1733,6 +1770,11 @@ impl App {
                 }
             }
             (View::Catalog, Some(i)) => {
+                let Some(p) = self.tab.catalog.posts().get(i) else { return };
+                let key = self.tab.catalog.key(p);
+                if self.show_open(&key) {
+                    return;
+                }
                 let Some(p) = self.tab.catalog.posts().get(i) else { return };
                 // On an overboard the thread lives on its own board.
                 self.open_thread_at(self.find_board(&self.tab.catalog.board_of(p)), p.no, Opening::default());

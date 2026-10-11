@@ -298,6 +298,14 @@ impl App {
     /// `10j`, and `z` / `g` taking a second key, `zz`, `gg`), the gallery or the viewer.
     fn on_view_key(&mut self, key: KeyEvent) {
         let pending = self.pending.take();
+        self.run_view_key(pending, key);
+        if self.pending.is_some() && self.pending != pending {
+            self.pending_since = Some(self.clock.instant());
+        }
+    }
+
+    /// `key` after what was `pending`.
+    fn run_view_key(&mut self, pending: Option<Pending>, key: KeyEvent) {
         if self.finish_prefix(pending, key.code) {
             return;
         }
@@ -336,16 +344,21 @@ impl App {
                     self.pending = NonZeroUsize::new(count.map_or(0, NonZeroUsize::get).saturating_mul(10).saturating_add(d).min(99_999)).map(Pending::Count);
                 }
             }
-            // `5g`, `5G`: the fifth post (or entry) at once. A `g` right after `5g` is part of
-            // vim's `5gg`, already done.
-            Nav::G | Nav::Bottom if count.is_some() => {
-                self.go_to_entry(n);
-                if nav == Nav::G {
-                    self.pending = Some(Pending::CountedG);
-                }
-            }
-            Nav::G => self.pending = Some(Pending::G),
+            // `5G`: the fifth post (or entry) at once; `5g` waits for `g` (that too) or `t`
+            // (the fifth tab).
+            Nav::Bottom if count.is_some() => self.go_to_entry(n),
+            Nav::G => self.pending = Some(count.map_or(Pending::G, Pending::CountG)),
             Nav::Z => self.pending = Some(Pending::Z),
+            Nav::Mark => self.pending = Some(Pending::Mark),
+            Nav::GoToMark => self.pending = Some(Pending::GoToMark),
+            Nav::ScreenTop | Nav::ScreenMiddle | Nav::ScreenBottom => {
+                let at = match nav {
+                    Nav::ScreenTop => Place::Top,
+                    Nav::ScreenMiddle => Place::Middle,
+                    _ => Place::Bottom,
+                };
+                self.select_on_screen(at, n);
+            }
             Nav::Refresh => self.refresh(),
             Nav::Esc | Nav::Left | Nav::Back if view == View::Thread => self.back_in_thread(),
             Nav::Esc if !self.filter(view).is_empty() => self.edit_filter(view, String::clear),
@@ -454,7 +467,11 @@ impl App {
             Action::PrevPart => self.step_part(false),
             Action::Watch => self.toggle_watch(),
             Action::Remove => self.remove_entry(),
-            Action::Goto => self.typing = Some(Typing::Goto(String::new())),
+            Action::Goto => {
+                self.recalling = None;
+                self.typing = Some(Typing::Goto(String::new()));
+            }
+            Action::Alternate => self.alternate(),
             Action::Links => self.open_links(),
             Action::Hide => self.toggle_hidden(),
             Action::Mine => self.toggle_mine(),
@@ -581,6 +598,8 @@ impl App {
         }
         let Some(t) = &mut self.tab.thread else { return };
         let half = (t.viewport / 2).max(1) as isize;
+        // A page keeps two lines of the last, as vim's does.
+        let page = t.viewport.saturating_sub(2).max(1) as isize;
         let times = n as isize;
         match nav {
             Nav::Down => (0..n).for_each(|_| t.step(true)),
@@ -589,8 +608,8 @@ impl App {
             Nav::LineUp => t.scroll_lines(-times),
             Nav::HalfDown => t.scroll_lines(half.saturating_mul(times)),
             Nav::HalfUp => t.scroll_lines(-half.saturating_mul(times)),
-            Nav::PageDown => t.scroll_lines((half * 2 - 1).saturating_mul(times)),
-            Nav::PageUp => t.scroll_lines(-(half * 2 - 1).saturating_mul(times)),
+            Nav::PageDown => t.scroll_lines(page.saturating_mul(times)),
+            Nav::PageUp => t.scroll_lines(-page.saturating_mul(times)),
             Nav::Top => t.select_entry(0),
             // The very end of the thread, so a refresh's new posts come into view.
             Nav::Bottom => {
@@ -615,25 +634,127 @@ impl App {
         }
     }
 
-    /// The key after a count or prefix: esc drops what was waiting, `gg` goes to the top,
-    /// `zz` / `zt` / `zb` put the selected post at the screen's middle, top or bottom. False
-    /// if it's none of these.
+    /// The key after a count or prefix: esc drops what was waiting; `gg` goes to the top
+    /// (`3gg`: the third), `gt` / `gT` to the next or previous tab (`3gt`: the third); `zz` /
+    /// `zt` / `zb` put the selected post at the screen's middle, top or bottom; `ma` marks the
+    /// post, `'a` goes back to it and `''` to where you jumped from. False if it's none of
+    /// these (the key does what it does alone).
     fn finish_prefix(&mut self, pending: Option<Pending>, code: KeyCode) -> bool {
-        let at = match (pending, code) {
-            (Some(Pending::Count(_) | Pending::G | Pending::Z), KeyCode::Esc) | (Some(Pending::CountedG), KeyCode::Char('g')) => return true,
-            (Some(Pending::G), KeyCode::Char('g')) => {
+        let Some(pending) = pending else { return false };
+        let place = match (pending, code) {
+            (_, KeyCode::Esc) => None,
+            (Pending::G, KeyCode::Char('g')) => {
                 self.go_to_entry(1);
-                return true;
+                None
             }
-            (Some(Pending::Z), KeyCode::Char('z' | '.')) => Place::Middle,
-            (Some(Pending::Z), KeyCode::Char('t') | KeyCode::Enter) => Place::Top,
-            (Some(Pending::Z), KeyCode::Char('b' | '-')) => Place::Bottom,
+            (Pending::CountG(n), KeyCode::Char('g')) => {
+                self.go_to_entry(n.get());
+                None
+            }
+            (Pending::G, KeyCode::Char(c @ ('t' | 'T'))) => {
+                self.cycle_tab(c == 't');
+                None
+            }
+            (Pending::CountG(n), KeyCode::Char('t')) => {
+                match self.tabs.len() {
+                    tabs if n.get() <= tabs => self.show_tab(n.get() - 1),
+                    1 => self.info(format!("There's no tab {n}: one is open")),
+                    tabs => self.info(format!("There's no tab {n}: {tabs} are open")),
+                }
+                None
+            }
+            (Pending::CountG(n), KeyCode::Char('T')) => {
+                for _ in 0..n.get().min(self.tabs.len()) {
+                    self.cycle_tab(false);
+                }
+                None
+            }
+            (Pending::Z, KeyCode::Char('z' | '.')) => Some(Place::Middle),
+            (Pending::Z, KeyCode::Char('t') | KeyCode::Enter) => Some(Place::Top),
+            (Pending::Z, KeyCode::Char('b' | '-')) => Some(Place::Bottom),
+            (Pending::GoToMark, KeyCode::Char('\'' | '`')) => {
+                self.act(Action::JumpBack);
+                None
+            }
+            (Pending::Mark, KeyCode::Char(c)) if c.is_ascii_alphabetic() => {
+                self.set_mark(c);
+                None
+            }
+            (Pending::GoToMark, KeyCode::Char(c)) if c.is_ascii_alphabetic() => {
+                self.go_to_mark(c);
+                None
+            }
+            (Pending::Mark | Pending::GoToMark, _) => {
+                self.info("A mark is a letter: a-z in this thread, A-Z in any");
+                None
+            }
             _ => return false,
         };
-        if let Some(t) = &mut self.tab.thread {
+        if let (Some(at), Some(t)) = (place, &mut self.tab.thread) {
             t.place(at);
         }
         true
+    }
+
+    /// What can follow the prefix waiting, once it's waited `NEXT_KEYS_AFTER`: each key and
+    /// what it does (with the marks there are, after `m` and `'`).
+    pub fn next_keys(&self) -> Option<Vec<(String, String)>> {
+        let since = self.pending_since?;
+        if self.clock.instant().saturating_duration_since(since) < NEXT_KEYS_AFTER {
+            return None;
+        }
+        let row = |k: &str, what: &str| (k.to_string(), what.to_string());
+        let thread = self.tab.view() == View::Thread;
+        let rows = match self.pending? {
+            Pending::Count(_) => return None,
+            Pending::G => vec![row("g", "the top"), row("t", "the next tab"), row("T", "the previous tab")],
+            Pending::CountG(n) => vec![row("g", &format!("{} {n}", if thread { "post" } else { "row" })), row("t", &format!("tab {n}")), row("T", &format!("{n} tabs back"))],
+            Pending::Z => vec![row("z", "the post to the middle"), row("t", "the post to the top"), row("b", "the post to the bottom")],
+            Pending::Mark => vec![row("a-z", "mark the post, in this thread"), row("A-Z", "mark it, to find from anywhere")],
+            Pending::GoToMark => {
+                let key = self.tab.thread.as_ref().filter(|_| thread).map(|t| t.key());
+                let mut marks: Vec<&crate::store::Mark> = self.store.recall.marks.iter().filter(|m| m.name.is_ascii_uppercase() || Some(&m.key) == key).collect();
+                marks.sort_by_key(|m| (m.name.is_ascii_uppercase(), m.name));
+                let mut rows = vec![row("'", "where you jumped from")];
+                rows.extend(marks.into_iter().map(|m| match Some(&m.key) == key {
+                    true => (m.name.to_string(), format!("No.{}", m.post)),
+                    false => (m.name.to_string(), format!("{}/{}/{} No.{}", m.key.site, m.key.board, m.key.no, m.post)),
+                }));
+                rows
+            }
+        };
+        Some(rows)
+    }
+
+    /// `H`, `M`, `L`: select the post or row at the screen's top, middle or bottom (with a
+    /// count, `n`th from the top or bottom), as last drawn, without scrolling.
+    fn select_on_screen(&mut self, at: Place, n: usize) {
+        let view = self.tab.view();
+        if view == View::Thread {
+            if let Some(t) = &mut self.tab.thread
+                && let Some(e) = t.entry_on_screen(at, n)
+            {
+                t.set_cursor(e);
+            }
+            return;
+        }
+        // The rows (or a grid's cells) on screen, whole or not.
+        let shown = match self.drawn().and_then(|d| d.body) {
+            Some(Hit::List { area, offset, item_height }) => offset..offset + usize::from(area.height.div_ceil(item_height.max(1))),
+            Some(Hit::Grid { area, offset, cols, cell }) => offset..offset + usize::from(area.height.div_ceil(cell.1.max(1))) * cols,
+            _ => return,
+        };
+        let last = shown.end.min(self.row_keys(view).len()).saturating_sub(1);
+        let (first, skip) = (shown.start, n.saturating_sub(1));
+        let row = match at {
+            Place::Top => (first + skip).min(last),
+            Place::Bottom => last.saturating_sub(skip).max(first),
+            Place::Middle => (first + last) / 2,
+        };
+        self.pick_row(view, row);
+        if view == View::Search {
+            self.search_moved();
+        }
     }
 
     /// The `n`th entry (from 1): a thread's post, or a list's row.
@@ -711,13 +832,22 @@ impl App {
             self.typing = None;
             return;
         };
+        let recalling = self.recalling.take();
         match key.code {
+            KeyCode::Up | KeyCode::Down => {
+                self.recalling = recalling;
+                if let Some(line) = super::command::recall(&self.store.recall.searches, &mut self.recalling, &t.search, key.code == KeyCode::Up) {
+                    t.set_search(line);
+                }
+            }
             KeyCode::Esc => {
                 t.set_search(String::new());
                 self.typing = None;
             }
             KeyCode::Enter => {
                 self.typing = None;
+                super::command::keep(&mut self.store.recall.searches, &t.search);
+                self.save_pending = true;
                 let msg = match t.next_match(true) {
                     Some(i) => {
                         t.select(i);
@@ -742,12 +872,52 @@ impl App {
         let Some(t) = &self.tab.thread else { return };
         let Some(p) = t.current() else { return };
         let posts: Vec<u64> = p.quotes.iter().copied().filter(|q| t.index.contains_key(q)).collect();
-        let elsewhere: Vec<u64> = p.links.iter().filter_map(|l| l.post).filter(|n| !t.index.contains_key(n)).collect();
-        if posts.is_empty() && elsewhere.is_empty() {
+        let links: Vec<crate::model::Link> = p.links.iter().filter(|l| l.post.is_some_and(|n| !t.index.contains_key(&n))).cloned().collect();
+        if posts.is_empty() && links.is_empty() {
             self.info("Post quotes nothing");
             return;
         }
-        self.tab.popup = Some(TabPopup::Preview(Preview { posts, elsewhere, scroll: ListState::default() }));
+        let elsewhere = links.into_iter().map(|l| {
+            let quoted = if l.thread.is_some() { Quoted::Loading } else { Quoted::Missing("its thread isn't known; enter in the thread follows it".into()) };
+            (l, quoted)
+        });
+        self.tab.popup = Some(TabPopup::Preview(Preview { posts, elsewhere: elsewhere.collect(), scroll: ListState::default() }));
+        self.fetch_quoted();
+    }
+
+    /// Fetch the threads the preview's quotes from elsewhere are in, each once, in the
+    /// background.
+    fn fetch_quoted(&mut self) {
+        let Some(TabPopup::Preview(p)) = &self.tab.popup else { return };
+        let here = self.tab.board.as_ref().map(|b| b.uri.clone()).unwrap_or_default();
+        let mut threads: Vec<(String, u64)> = p.elsewhere.iter().filter_map(|(l, _)| Some((l.board.clone().unwrap_or_else(|| here.clone()), l.thread?))).collect();
+        threads.dedup();
+        let backend = self.current_site().backend.clone();
+        for (board, no) in threads {
+            let (later, backend) = (self.later(), backend.clone());
+            std::thread::spawn(move || {
+                let res = crate::guard::result(|| backend.thread(&board, no).map(crate::model::Thread::into_posts));
+                later.run(move |app| app.quoted_fetched(&board, no, &res));
+            });
+        }
+    }
+
+    /// A thread the preview quotes arrived: its quoted posts show.
+    pub(super) fn quoted_fetched(&mut self, board: &str, no: u64, res: &anyhow::Result<Vec<Post>>) {
+        let here = self.tab.board.as_ref().map(|b| b.uri.clone()).unwrap_or_default();
+        let Some(TabPopup::Preview(p)) = &mut self.tab.popup else { return };
+        for (link, quoted) in &mut p.elsewhere {
+            if link.thread != Some(no) || link.board.as_deref().unwrap_or(&here) != board || !matches!(quoted, Quoted::Loading) {
+                continue;
+            }
+            *quoted = match res {
+                Ok(posts) => match posts.iter().find(|post| Some(post.no) == link.post) {
+                    Some(post) => Quoted::Found(Box::new(post.clone())),
+                    None => Quoted::Missing("not in its thread any more".into()),
+                },
+                Err(e) => Quoted::Missing(crate::http::plain(e)),
+            };
+        }
     }
 
     fn on_preview_key(&mut self, code: KeyCode) {
@@ -759,12 +929,17 @@ impl App {
             KeyCode::Char(' ') | KeyCode::PageDown => scroll_by(s, 10),
             KeyCode::PageUp => scroll_by(s, -10),
             KeyCode::Char('g') => scroll_by(s, isize::MIN),
-            // Jump to the (first) quoted post.
+            // Jump to the (first) quoted post; if it's in another thread, go there.
             KeyCode::Enter => {
                 let first = p.posts.first().copied();
+                let away = p.elsewhere.first().map(|(l, _)| l.clone());
                 self.tab.popup = None;
-                if let (Some(t), Some(no)) = (&mut self.tab.thread, first) {
-                    t.jump_to(no);
+                match (&mut self.tab.thread, first, away) {
+                    (Some(t), Some(no), _) => {
+                        t.jump_to(no);
+                    }
+                    (_, None, Some(link)) => self.follow(&link),
+                    _ => {}
                 }
             }
             _ => self.tab.popup = None,

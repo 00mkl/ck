@@ -306,7 +306,7 @@ fn e2e_soak() {
     let mut rng = Rng::new(seed);
     let dir = tempfile::tempdir().unwrap();
     let sites = [
-        ("vichan", SiteKind::Vichan, "boards = [\"g\", \"b\", \"tech\"]\narchive = \"fool\"\n"),
+        ("vichan", SiteKind::Vichan, "boards = [\"g\", \"b\", \"tech\"]\narchives = [\"fool\"]\n"),
         ("lynx", SiteKind::Lynxchan, ""),
         ("fool", SiteKind::Foolfuuka, ""),
         ("js", SiteKind::Jschan, ""),

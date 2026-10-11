@@ -71,9 +71,11 @@ You need few. With something selected:
 | `j`/`k`, `gg`/`G` | move (`10j`), top / bottom | `w` / `W` | watch a thread / the watched ones |
 | `enter`, `h` | open, back | `r` | reply |
 | `/`, `n` | filter the list, search a thread | `V` | gallery |
-| `:` | go to a URL or `site/board/thread` | `d` / `y` | save / copy |
+| `:` | a command (`:tabnew`, `:export`) or a URL / `site/board/thread` | `d` / `y` | save / copy |
 | `]` / `[` | next / previous tab | `,` | settings |
 | `zz` / `zt` / `zb` | the post to the middle / top / bottom | `q` | quit |
+| `H` / `M` / `L` | the post at the top / middle / bottom of the screen | `gt` / `gT` | next / previous tab |
+| `ma`, `'a` | mark a post, back to it | ctrl-o, ctrl-^ | back where you jumped from, the thread read before |
 
 Every key can be remapped, in Settings or the config.
 

@@ -39,9 +39,17 @@ link. `d` saves it: the focused file, or all the post's files.
 Back goes the way you came. In a thread it first leaves a conversation, a poster's posts
 or a search; then goes back to the post you followed a quote from; then to the thread you
 followed a link from; then to where the thread was opened from (the catalog, the watched
-threads, ...). Every thread you leave, whichever way, is also on the tab's jump list:
-`. u` goes back to the thread you left last, at the post you were on, also from a catalog,
-and `. ctrl-r` forward again [`jump_back`, `jump_forward`].
+threads, ...). As in vim, ctrl-o goes back where you jumped from: in a thread, the post you
+followed a quote (or `'a`, `n`, ...) from; else, and from a catalog, the thread you left
+last, at the post you were on: every thread you leave, whichever way, is on the tab's jump
+list. `. ctrl-r` goes forward again [`jump_back`, `jump_forward`]. ctrl-^ opens the thread you
+read before this one, where you left it; again, it comes back [`alternate`].
+
+Marks are vim's: `ma` marks the selected post as `a`, and `'a` comes back to it (`` ` `` works
+too); `''` goes back where that jumped from. A lowercase mark is the thread's own (`a` can
+mark a post in each thread); an uppercase one is one of its kind and opens its thread from
+anywhere. `:marks` lists them, `:delmarks a B` forgets some (`:delmarks!`: this thread's).
+They're kept between runs.
 
 A list's selection stays on what it's on when the list changes behind it (a refresh,
 something hidden in another tab, `w` with watched threads first); if that goes, what's now
@@ -57,6 +65,9 @@ Navigation (fixed):
 |-------------------------|-----------------------------------------------|
 | `j`/`k`, arrows         | move (in a thread: next/previous post)        |
 | `gg`/`G`                | top / bottom                                  |
+| `gt` / `gT`             | next / previous tab (`3gt`: the third)        |
+| `H` / `M` / `L`         | the post or row at the top / middle / bottom of the screen (`3H`: the third from the top) |
+| `m`, `'`                | set a mark, go to one (above)                 |
 | ctrl-d / ctrl-u         | half a page (in a list, 10 rows)              |
 | ctrl-f / ctrl-b         | a page (in a list, 20 rows)                   |
 | space                   | in a thread: a page                           |
@@ -68,11 +79,14 @@ Navigation (fixed):
 | mouse                   | wheel scrolls, click selects, double-click opens, right-click opens the menu (over popups: below) |
 
 As in vim, a count before a move repeats it: `10j` goes ten posts down, `5ctrl-d` five half
-pages. `10G` (or `10g`, or `10` and end) goes to the tenth post (in a list, the tenth row). A count also
-repeats `n`/`N` and tab. While a count or a `z`/`g` waits for the rest of its
-command it shows at the right of the footer, next to where you are: the selected post of how
-many (in a list, the row), and how far down that is, as an editor's ruler does. `esc` drops
-a waiting count or prefix; another key drops it and does what it does.
+pages. `10G` (or `10gg`, or `10` and end) goes to the tenth post (in a list, the tenth row). A
+count also repeats `n`/`N` and tab. A page (ctrl-f, space) keeps two lines of the last. While a
+count or a `g`, `z`, `m` or `'` waits for the rest of its command it shows at the right of the
+footer, next to where you are: the selected post of how many (in a list, the row), and how
+far down that is, as an editor's ruler does. A prefix that waits half a second shows what
+can follow it, over the footer (after `'`, the marks there are). `esc` drops a waiting count
+or prefix; another key drops it and does what it does (after `m` or `'`, a key that isn't a
+letter does nothing).
 
 The mouse works on what's on top. Over a list popup (the menu, links, image search, the
 filter maker's choices, a settings picker) the wheel moves its rows; over the help, the
@@ -107,7 +121,7 @@ ones for where you are.
 |------|--------|
 | `/`  | filter the list; in a thread, search it [`search`] |
 | `R` / `o` | reload / open the board or thread in a browser [`reload`, `browser`] |
-| `:`  | go to a URL or a site/board/thread, see [Going to a URL](#going-to-a-url) [`goto`] |
+| `:`  | a command, or go to a URL or a site/board/thread, see [The command line](#the-command-line) [`goto`] |
 | `W`  | the watched threads (not in the image viewer or gallery); `esc` there goes back to where you pressed it [`watched`] |
 | `,`  | settings: theme, colors, keys, and more [`settings`] |
 | `.`, right-click | everything you can do with what's selected, with each one's key [`menu`] |
@@ -167,7 +181,7 @@ ones for where you are.
 | `c`  | which posts: a conversation, a poster's posts, only those with files, hidden posts, spoilers (below) [`show`] |
 | `r`  | reply, quoting the post (see Posting) [`reply`] |
 | `w`  | watch / unwatch [`watch`] |
-| `p`  | preview the posts a post quotes [`preview`] |
+| `p`  | preview the posts a post quotes; one in another thread (its quote ends in `→`) is fetched from there, and `enter` goes to it when it's the only kind [`preview`] |
 | `n` / `N` | next / previous search match [`next_match`, `prev_match`] |
 | `V`  | gallery of every file in the thread [`gallery`] |
 | `d`  | save the focused file, or all the post's files; in the gallery, the selected one [`download`] |
@@ -194,6 +208,11 @@ it above and what comes next below. Reading up with `k` does the same at the top
 (following a quote, going back, `. U`, `n`, a search hit, a hint) land there too. `scroll_margin =
 0.5` keeps the selected post centered, and `0` lets it reach the edges (scrolling as little
 as possible, as before); Settings › Reading position cycles through them.
+
+On a wide screen threads, catalogs (in cards and compact) and search results are at most
+`text_width` columns wide (140 by default), centered: long lines are hard to read. `0` uses
+the whole width; Settings › Text width cycles through 100, 120, 140, 160 and that. The grid
+uses the whole width, with wider cards when there's room.
 
 ### Reading the end of a thread
 
@@ -292,11 +311,35 @@ one, their titles whole while they fit and the longest cut first when they don't
 the last). A tab on a watched thread counts the posts it has gained since you read it,
 like `2 Thread subject (5)`. Up to 9. Only the tab on screen refreshes its thread in the background;
 another tab's thread is refreshed when you come back to it (watched threads are refreshed
-anyway). The tabs are part of the session that's restored at the next start.
+anyway). Opening a thread that another tab already has (from a catalog, Watched or History)
+goes to that tab instead of opening it twice. The tabs are part of the session that's
+restored at the next start; a restored tab's thread counts as read (in History, and its
+posts as seen) only once you go to that tab.
+
+### The command line
+
+`:` takes a command, as vim's does, or a place to go (below). Up and down bring back the
+lines typed before that start with what's typed (as they do after `/` in a thread); both are
+kept between runs.
+
+| command                       | does                                                 |
+|-------------------------------|------------------------------------------------------|
+| `:q`, `:qa`, `:wq`, `:quit`   | quit                                                 |
+| `:tabnew`, `:tabnew PLACE`    | a new tab after this one: home, or that place        |
+| `:tabclose`, `:tabnext [N]`, `:tabprevious`, `:tabfirst`, `:tablast` | close a tab, go to one |
+| `:e PLACE`, `:open PLACE`     | go there (`:e` alone is the board /e/)               |
+| `:colorscheme NAME`           | switch theme (`tab` completes the names)             |
+| `:set`                        | settings                                             |
+| `:nohlsearch`, `:noh`         | clear the thread's search                            |
+| `:marks`, `:delmarks`         | list, forget marks                                   |
+| `:help`                       | the keys                                             |
+| `:NAME`                       | any command by its name in `[keys]`: `:export`, `:archive`, `:download-thread`, `:show_hidden` |
+
+A command wins over a board of the same name; `/q/` is still `:/q/` (or `:4chan/q`).
 
 ### Going to a URL
 
-`:` asks where to go. Paste a thread or board URL from any of your sites (pasting while
+After `:`, what isn't a command is where to go. Paste a thread or board URL from any of your sites (pasting while
 nothing else is being typed starts this by itself), or type a short form. A site's own page
 (`https://lainchan.org/index.html`) goes to its board list, and a jschan site's
 `/overboard.html` to its overboard. A link to a site ck doesn't have yet offers to add it
@@ -312,7 +355,7 @@ nothing else is being typed starts this by itself), or type a short form. A site
 | `>>>/g/123`            | a cross-board quote: thread 123 on /g/             |
 | `saved`, `watched`, `history` | that list                                   |
 
-`tab` completes site and board names. In a one-line box (`:`, `/`, the fields of Settings
+`tab` completes commands, site and board names. In a one-line box (`:`, `/`, the fields of Settings
 and the filter maker) ctrl-w takes back a word and ctrl-u the whole line. `esc` goes back to where you
 were (from Settings: to the place under them). `ck URL` (or `ck 4chan/g`) starts there.
 
@@ -328,7 +371,7 @@ are saved in the config's `[keys]` section (only the keys you changed):
 watch = "Q"
 help = ["?", "f1"]
 reload = ["R", "ctrl-l"]
-hide = "H"              # on a letter in the . menu by default
+hide = "alt-h"          # on a letter in the . menu by default
 download = []           # no key: only in the . menu
 ```
 
@@ -459,7 +502,7 @@ top of the Sites view lists watched threads from all sites with their post count
 many posts are new (posts you've hidden, or your filters and hidden words hide, aren't
 counted, nor notified about); threads that 404 stay listed as "archived/deleted", with
 nothing new (the totals on the Watched entry, its view and the title leave them out).
-"History" lists the last 100 threads you opened. `x` removes an entry from either list.
+"History" lists the last 100 threads you read, newest first. `x` removes an entry from either list.
 
 The open thread refreshes in the background every 10 seconds and watched threads every
 60 seconds (change with `refresh_thread_secs` / `refresh_watched_secs`; those are also the
@@ -598,7 +641,8 @@ every tab at once; unwatching the thread (`w`, or `x` in Watched) forgets them.
 ck keeps its state as JSON in `$XDG_DATA_HOME/ck` (default `~/.local/share/ck`):
 `watched.json`, `history.json`, `recent_boards.json`, `board_prefs.json` (each board's
 sort and layout), `hidden.json` (what you hid with `. H`), `seen.json` (catalog threads
-seen, for "new" and `+N`), `session.json` (your tabs, for the next start), and `saved.json`
+seen, for "new" and `+N`), `session.json` (your tabs, for the next start), `recall.json`
+(the lines typed after `:` and `/`, and your marks), and `saved.json`
 with `threads/` (saved threads). A file ck can't read (say, permissions) is left alone,
 and ck warns at start that changes to it won't be saved that run; a corrupt one is moved
 to `<name>.json.corrupt`. Board
@@ -886,7 +930,8 @@ All settings are optional; see `config.example.toml` for every option with comme
 - `[[image_search]]`: reverse image search engines, see
   [Reverse image search](#reverse-image-search).
 - `[[site]]`, `default_sites = false`: see [Adding sites](#adding-sites).
-- `archive = "desuarchive"` on a `[[site]]`: the archive for 404'd threads and `. A` searches.
+- `archives = ["desuarchive", "palanq", "b4k"]` on a `[[site]]`: the archives for 404'd threads
+  and `. A` searches, the first that keeps the board.
 - `[keys]`: `action = "key"`, `action = ["key", ...]`, or `action = []` for none (the `.`
   menu only), e.g. `watch = "Q"`; see
   [Remapping keys](#remapping-keys). Unknown actions, things that aren't keys, and two
@@ -938,8 +983,11 @@ boards = ["b", { uri = "tech", title = "Technology" }]
 thumb_ext = "png"   # only if the site renders every thumbnail as png (vichan's `thumb_ext`)
 ```
 
-A site can name a FoolFuuka archive with `archive = "desuarchive"`. When one of its
-threads 404s, ck offers to open it there (`enter`, or `. a` while the thread is still on screen).
+A site can name FoolFuuka archives with `archives = ["desuarchive", "palanq", "b4k"]` (4chan
+does). Each keeps some boards: archive search (`. A`) and a thread that 404s use the first
+that keeps the board, as its board list says; when a list isn't known yet, the search asks for
+it first, and says so if none keeps the board. When one of its threads 404s, ck offers to open
+it there (`enter`, or `. a` while the thread is still on screen).
 
 Config files from earlier versions of ck hold a copy of every built-in site (ck used to read
 only the sites in the file). Those copies still work (each replaces the built-in site of its name); delete

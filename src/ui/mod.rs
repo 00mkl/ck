@@ -13,7 +13,7 @@ use std::rc::Rc;
 use ratatui_image::Image;
 
 use crate::app::{
-    App, Clock, Hit, LineCache, LinkItem, Part, Pending, Popup, Reveal, TabPopup, Spot, SettingsPopup, SiteRow, Sort, Status, ThreadLayout, ThreadCopy, ThreadView, Typing, View, key_rows,
+    App, Clock, Hit, LineCache, LinkItem, Part, Pending, Popup, Quoted, Reveal, TabPopup, Spot, SettingsPopup, SiteRow, Sort, Status, ThreadLayout, ThreadCopy, ThreadView, Typing, View, key_rows,
     setting_rows, settings,
 };
 use std::collections::HashMap;
@@ -183,6 +183,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             View::Search => draw_search(f, app, content),
         }
         draw_footer(f, app, footer);
+        draw_next_keys(f, app, footer);
         match app.tab.popup {
             Some(TabPopup::Preview(_)) => draw_preview(f, app),
             Some(TabPopup::Links(_)) => draw_links(f, app),
@@ -226,12 +227,12 @@ fn draw_tab_row(f: &mut Frame, app: &mut App, area: Rect) {
     let t = theme();
     // A watched thread's new posts, kept whatever the label is cut to.
     let tabs: Vec<(String, String)> = (0..n).map(|i| (app.tab_label(i), app.tab_unread(i).map_or(String::new(), |n| format!(" ({n})")))).collect();
-    // Each label whole (up to a few words' worth) if they all fit; else the longest are cut
-    // to the same length, as long as fits.
+    // Each label whole if they all fit; else the longest are cut to the same length, as long
+    // as fits.
     let width = |cap: usize| -> usize {
         tabs.iter().enumerate().map(|(i, (label, unread))| markup::columns(&format!(" {} ", i + 1)) + markup::columns(label).min(cap) + markup::columns(unread) + 2).sum()
     };
-    let cap = (3..=48).rev().find(|&cap| width(cap) <= usize::from(area.width)).unwrap_or(3);
+    let cap = (3..=80).rev().find(|&cap| width(cap) <= usize::from(area.width)).unwrap_or(3);
     let mut x = area.x;
     for (i, (label, unread)) in tabs.iter().enumerate() {
         let text = format!(" {} {}{unread} ", i + 1, truncate(label, cap));
@@ -328,7 +329,8 @@ fn location(app: &App) -> (Vec<String>, Vec<Span<'static>>) {
         View::Thread => {
             let mut return_crumbs = None;
             let th = app.tab.thread.as_ref();
-            let subject = th.and_then(|th| th.posts.first()?.subject.clone()).unwrap_or_else(|| {
+            // Its subject, else how its first post starts (as its tab says), else its number.
+            let subject = th.map(|th| crate::app::thread_subject(&th.posts)).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| {
                 th.map_or_else(|| "Thread".into(), |th| format!("Thread {}", th.key().no))
             });
             if let Some(th) = th {
@@ -373,9 +375,9 @@ fn location(app: &App) -> (Vec<String>, Vec<Span<'static>>) {
                 crumbs
             } else if let Some(g) = &app.tab.gallery {
                 meta.insert(0, plural(g.files.len(), "file"));
-                vec![site(), uri, truncate(&subject, 40), "Files".into()]
+                vec![site(), uri, truncate(&subject, 60), "Files".into()]
             } else {
-                vec![site(), uri, truncate(&subject, 48)]
+                vec![site(), uri, subject]
             }
         }
         View::Watched => {
@@ -468,7 +470,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let t = theme();
     fill(f, area, t.bar);
     let typing = app.typing.as_ref().map(|typing| match typing {
-        Typing::Goto(g) => ("go to", g.as_str()),
+        Typing::Goto(g) => (":", g.as_str()),
         Typing::ArchiveQuery(q) => ("search the archive", q.as_str()),
         Typing::ThreadSearch => ("search", app.tab.thread.as_ref().map_or("", |th| th.search.as_str())),
         Typing::ListFilter => ("filter", app.filter(app.tab.view())),
@@ -483,7 +485,8 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
                 match (app.goto_text(), app.status()) {
                     // Tab completion's candidates, or what went wrong.
                     (Some(_), Some(Status { text, error })) => format!("   {}{text}", if *error { "! " } else { "" }),
-                    (Some(_), _) => "   enter go   tab complete   esc cancel".into(),
+                    (Some(_), _) => "   enter run or go   tab complete   ↑↓ earlier   esc cancel".into(),
+                    _ if app.typing == Some(Typing::ThreadSearch) => "   enter accept   ↑↓ earlier   esc clear".into(),
                     _ => "   enter accept   esc clear".into(),
                 },
                 dim(),
@@ -502,7 +505,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let d = &app.downloads;
     let mut right = Vec::new();
     // Keys waiting for the rest of their command (`10`, `z`), as vim shows them.
-    if let Some(keys) = app.pending.and_then(Pending::shown) {
+    if let Some(keys) = app.pending.map(Pending::shown) {
         right.extend([Span::styled(keys, bold(t.primary)), Span::raw("  ")]);
     }
     // Where you are, as an editor's ruler: the selected post (or row) of how many, and how
@@ -523,6 +526,23 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let line = Line { spans: cut(line.spans, usize::from(left_w)), ..line };
     put(f, area.x, area.y, left_w, line);
     put(f, area.right().saturating_sub(right_w), area.y, right_w, Line::from(right));
+}
+
+/// What can follow a prefix that's waited a moment (`g`: `gg`, `gt`, ...), as which-key shows
+/// it: a panel over the footer's right end.
+fn draw_next_keys(f: &mut Frame, app: &App, footer: Rect) {
+    let Some(rows) = app.next_keys() else { return };
+    let t = theme();
+    let keys_w = rows.iter().map(|(k, _)| markup::columns(k)).max().unwrap_or(0);
+    let lines: Vec<Line> = rows.iter().map(|(k, what)| Line::from(vec![Span::styled(pad(k, keys_w + 2), bold(t.primary)), Span::styled(what.clone(), Style::new().fg(t.text))])).collect();
+    let w = cells(lines.iter().map(|l| markup::spans_columns(&l.spans)).max().unwrap_or(0) + 4).min(footer.width);
+    let h = cells(lines.len() + 2).min(footer.y);
+    let r = Rect::new(footer.right().saturating_sub(w + 1), footer.y.saturating_sub(h), w, h);
+    f.render_widget(Clear, r);
+    fill(f, r, t.surface_highest);
+    for (i, line) in lines.into_iter().enumerate().take(usize::from(h.saturating_sub(2))) {
+        put(f, r.x + 2, r.y + 1 + cells(i), r.width.saturating_sub(4), line);
+    }
 }
 
 /// Key hints in `width` columns: the last one (help) always, and before it as many of the
@@ -893,6 +913,15 @@ pub(crate) fn truncate(s: &str, width: usize) -> String {
 }
 
 /// `s` padded with spaces to `width` cells (as drawn); never cut.
+/// `area` at most `width` wide (`text_width`; 0: as it is), centered: long lines are hard
+/// to read.
+fn readable(width: u16, area: Rect) -> Rect {
+    match width {
+        w if w > 0 && area.width > w => Rect { x: area.x + (area.width - w) / 2, width: w, ..area },
+        _ => area,
+    }
+}
+
 pub(crate) fn pad(s: &str, width: usize) -> String {
     format!("{s}{}", " ".repeat(width.saturating_sub(markup::columns(s))))
 }

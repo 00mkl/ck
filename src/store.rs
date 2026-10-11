@@ -170,6 +170,27 @@ pub struct BoardPrefs {
 /// Threads gone from the catalog this long are forgotten.
 const SEEN_FOR: i64 = 7 * 24 * 3600;
 
+/// What vim keeps between runs: the `:` and `/` lines typed, newest last, and the marks.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Recall {
+    #[serde(default)]
+    pub commands: Vec<String>,
+    #[serde(default)]
+    pub searches: Vec<String>,
+    #[serde(default)]
+    pub marks: Vec<Mark>,
+}
+
+/// A post marked with `m`: a lowercase name is the thread's own, an uppercase one is found
+/// from anywhere.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Mark {
+    pub name: char,
+    #[serde(flatten)]
+    pub key: ThreadKey,
+    pub post: u64,
+}
+
 /// Where you were: one place per tab.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
@@ -236,6 +257,7 @@ pub struct Store {
     pub saved: Vec<SavedMeta>,
     /// Where you were, as last saved (`save_session`).
     pub session: Session,
+    pub recall: Recall,
     /// Past this many bytes, the oldest unwatched copies are removed.
     pub saved_max: u64,
     /// Writes saved copies in the background (with a data directory).
@@ -310,6 +332,7 @@ impl Store {
             store.recent_boards = load_file(dir, "recent_boards.json", &mut store.owned, &mut warnings);
             store.board_prefs = load_file(dir, "board_prefs.json", &mut store.owned, &mut warnings);
             store.session = load_file(dir, "session.json", &mut store.owned, &mut warnings);
+            store.recall = load_file(dir, "recall.json", &mut store.owned, &mut warnings);
             let index: Option<SavedIndex> = load_file(dir, "saved.json", &mut store.owned, &mut warnings);
             store.saved = match index {
                 Some(index) => index.threads,
@@ -334,7 +357,7 @@ impl Store {
     }
 
     /// Every file with its content.
-    fn files(&self) -> Result<[(&'static str, Vec<u8>); 9]> {
+    fn files(&self) -> Result<[(&'static str, Vec<u8>); 10]> {
         Ok([
             ("watched.json", serde_json::to_vec_pretty(&self.watched)?),
             ("history.json", serde_json::to_vec_pretty(&self.history)?),
@@ -345,6 +368,7 @@ impl Store {
             ("settings.json", serde_json::to_vec_pretty(&self.settings)?),
             ("saved.json", serde_json::to_vec_pretty(&SavedIndex { version: saved::VERSION, threads: self.saved.clone() })?),
             ("session.json", serde_json::to_vec_pretty(&self.session)?),
+            ("recall.json", serde_json::to_vec_pretty(&self.recall)?),
         ])
     }
 
