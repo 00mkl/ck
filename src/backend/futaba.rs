@@ -124,7 +124,7 @@ impl Futaba {
         // A country's flag, else a board's own (4chan's /pol/); vichan forks use `country`
         // for custom flags too.
         let text = |k: &str| as_str(&v[k]).map(|s| markup::decode(&s));
-        let flag = Flag::new(text("country"), text("country_name")).or_else(|| Flag::new(text("board_flag"), text("flag_name")));
+        let flag = Flag::new(text("country"), text("country_name")).or_else(|| Flag::of_board(text("board_flag"), text("flag_name")));
         // On an overboard, files live under the thread's own board.
         let own_board = as_str(&v["board"]);
         let board = own_board.as_deref().unwrap_or(board);
@@ -353,14 +353,15 @@ mod tests {
     #[test]
     fn poster_ids_flags_trips_and_capcodes() {
         use crate::model::Flag;
-        let flag = |code: &str, name: &str| Some(Flag { code: code.into(), name: name.into() });
+        let flag = |code: &str, name: &str| Some(Flag { code: code.into(), name: name.into(), board: false });
         let posts = Futaba::fourchan(None).parse_thread("pol", &fixture("4chan_pol_thread.json"));
         let by = |no: u64| posts.iter().find(|p| p.no == no).unwrap();
         let op = by(487211034);
         assert_eq!((op.id.as_deref(), &op.flag), (Some("Ab3dEf+g"), &flag("US", "United States")));
         assert_eq!(posts.iter().filter(|p| p.id.as_deref() == Some("Ab3dEf+g")).count(), 2);
-        // A board flag where there's no country.
-        assert_eq!(by(487211201).flag, flag("AC", "Anarcho-Capitalist"));
+        // A board flag where there's no country: shown by its name, as its code reads as one.
+        let ac = by(487211201).flag.clone().unwrap();
+        assert_eq!((ac.code.as_str(), ac.board, ac.short()), ("AC", true, "Anarcho-Capitalist".to_string()));
         // The tripcode and capcode stay in the name, and are kept apart too.
         let named = by(487211260);
         assert_eq!((named.poster.name(), named.poster.trip(), named.poster.capcode()), ("Kot !!Fz3mQwerty", Some("!!Fz3mQwerty"), None));

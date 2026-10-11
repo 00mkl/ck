@@ -49,6 +49,8 @@ impl Lynxchan {
                 let shown_files: u64 = items(&t["posts"]).map(|r| r["files"].as_array().map_or(0, |f| f.len()) as u64).sum();
                 p.replies = Some(saturate(as_u64(&t["omittedPosts"]).unwrap_or(0).saturating_add(shown)));
                 p.images = Some(saturate(as_u64(&t["omittedFiles"]).unwrap_or(0).saturating_add(shown_files)));
+                // An index page (an overboard's) has no lastBump: the newest reply shown is the last.
+                p.bumped = p.bumped.or_else(|| items(&t["posts"]).filter_map(|r| parse_time(&r["creation"])).max());
                 p
             })
             .collect()
@@ -246,6 +248,8 @@ mod tests {
         let posts = end.parse_index(&fixture("lynxchan_overboard.json"));
         let boards: Vec<_> = posts.iter().map(|p| p.board.as_deref().unwrap()).collect();
         assert_eq!(boards, ["terrachan", "derman", "polru", "dota"]);
+        // No lastBump there: the newest reply shown is the last.
+        assert_eq!(posts[0].bumped, super::parse_time(&serde_json::json!("2026-10-02T02:15:00.000Z")));
         let kohl = Lynxchan::new("https://kohlchan.net".into(), None);
         let posts = kohl.parse_index(&fixture("kohlchan_overboard.json"));
         assert_eq!(posts[0].board.as_deref(), Some("int"));
@@ -277,7 +281,7 @@ mod tests {
         let posts = Lynxchan::new("https://endchan.net".into(), None).parse_thread(&fixture("lynxchan_thread.json"));
         assert_eq!(posts[0].id.as_deref(), Some("443169"));
         // A board's own flag has a name and no code.
-        assert_eq!(posts[0].flag, Some(Flag { code: String::new(), name: "Tatarstan".into() }));
+        assert_eq!(posts[0].flag, Some(Flag { code: String::new(), name: "Tatarstan".into(), board: false }));
         assert_eq!(posts[0].flag.as_ref().unwrap().short(), "Tatarstan");
         let p = posts.iter().find(|p| p.no == 867094).unwrap();
         assert_eq!((p.id.as_deref(), p.flag.as_ref().map(Flag::short).as_deref()), (Some("dc6304"), Some("RO")));
@@ -286,7 +290,7 @@ mod tests {
         let posts = Lynxchan::new("https://kohlchan.net".into(), None).parse_thread(&fixture("kohlchan_thread.json"));
         assert!(posts.iter().all(|p| p.id.is_none()));
         let p = posts.iter().find(|p| p.no == 28883633).unwrap();
-        assert_eq!(p.flag, Some(Flag { code: "br".into(), name: "Brasil".into() }));
+        assert_eq!(p.flag, Some(Flag { code: "br".into(), name: "Brasil".into(), board: false }));
     }
 
     fn find(v: &Value, no: u64) -> &Value {

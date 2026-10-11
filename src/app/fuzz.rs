@@ -226,7 +226,7 @@ impl Fake {
             board: rng.chance(10).then(|| rng.pick(BOARD_NAMES).to_string()),
             // A few posters, by number (taking nothing from `rng`, so seeds replay as before).
             id: (!no.is_multiple_of(7)).then(|| format!("id{}", no % 4)),
-            flag: no.is_multiple_of(3).then(|| crate::model::Flag { code: "US".into(), name: "United States".into() }),
+            flag: no.is_multiple_of(3).then(|| crate::model::Flag { code: "US".into(), name: "United States".into(), board: false }),
             ..markup::parse_html(&html, flavor).into()
         }
     }

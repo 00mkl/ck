@@ -485,6 +485,9 @@ impl ThreadView {
     pub fn enter_poster(&mut self) -> Result<usize, String> {
         let Some(p) = self.current() else { return Err("No posts".into()) };
         let Some(id) = p.id.clone() else { return Err(format!("No.{} has no poster ID (the board doesn't give them)", p.no)) };
+        if self.id_count(&id) < 2 {
+            return Err(format!("This is ID:{id}'s only post here"));
+        }
         Ok(self.show_only(p.no, Some(id)))
     }
 

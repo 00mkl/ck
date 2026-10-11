@@ -215,15 +215,19 @@ impl App {
                 } else if t.backlinks.get(t.selected).map_or(0, Vec::len) + p.quotes.iter().filter(|q| t.index.contains_key(q)).count() > 0 {
                     items.push(act(A::Conversation, "this post's conversation alone"));
                 }
-                if let Some(id) = p.id.as_deref().filter(|_| !by_poster) {
-                    items.push(act(A::Poster, &format!("only this poster's posts (ID:{id}, {})", t.id_count(id))));
+                // Only what would change something: a poster with more posts than this one, a
+                // thread with files. (Their keys still say why not.)
+                if let Some((id, n)) = p.id.as_deref().filter(|_| !by_poster).map(|id| (id, t.id_count(id))).filter(|&(_, n)| n > 1) {
+                    items.push(act(A::Poster, &format!("only this poster's posts (ID:{id}, {n})")));
                 }
                 let media = match t.media.next() {
                     Media::Files => "only the posts with files",
                     Media::NoImages => "all posts, images hidden",
                     Media::All => "all posts and images again",
                 };
-                items.push(act(A::Media, media));
+                if t.media != Media::All || t.posts.iter().any(|p| !p.files.is_empty()) {
+                    items.push(act(A::Media, media));
+                }
                 items.push(act(A::ShowHidden, if hidden { "leave out hidden posts" } else { "show hidden posts" }));
                 items.push(act(A::AllSpoilers, if t.reveal_all { "hide spoilers" } else { "show all spoilers" }));
             }
