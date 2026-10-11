@@ -260,7 +260,9 @@ it, as its two-letter code (`US`) or, for a board's own flags, its name.
 
 `c I` on a post (or `enter` on its ID, focused with `tab`, clicked, or picked with `f`) shows
 that poster's posts alone, as a conversation shows its posts: the top bar says "Posts by
-ID:…", everything works as in the whole thread, and `esc` goes back. It isn't
+ID:…", everything works as in the whole thread, and `esc` goes back. On a poster's only
+post in the thread it says so instead, and the `c` menu leaves it out (as it leaves out
+"only the posts with files" in a thread without any). It isn't
 remembered across starts (IDs are the thread's alone). Filters can catch IDs and flags too
 (see Filters).
 

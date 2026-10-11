@@ -445,7 +445,7 @@ fn poster_ids_and_flags() {
     let (ab, zq) = (chip_bg("Ab3dEf+g"), chip_bg("Zq9Wx2Lp"));
     assert!(ab.len() == 2 && ab[0] == ab[1] && zq.len() == 2 && zq[0] == zq[1], "{ab:?} {zq:?}");
     assert_ne!(ab[0], zq[0]);
-    assert!(text.contains("ID:Ab3dEf+g (2)") && text.contains("  AC  ") && text.contains(" GB "), "{text}");
+    assert!(text.contains("ID:Ab3dEf+g (2)") && text.contains("  Anarcho-Capitalist  ") && text.contains(" GB "), "{text}");
     // Under mono, only the text.
     crate::theme::set(crate::theme::resolve("mono", &Default::default()).unwrap());
     a.tab.thread.as_mut().unwrap().cache.clear();
@@ -2078,7 +2078,7 @@ fn the_add_filter_popup_draws_only_inside_its_panel_on_a_short_screen() {
     let p = &mut a.tab.thread.as_mut().unwrap().posts[0];
     p.poster = crate::model::Poster::new(Some("Named".into()), "Anonymous", Some("!Trip".into()), None);
     p.id = Some("abcd1234".into());
-    p.flag = Some(crate::model::Flag { code: "US".into(), name: "United States".into() });
+    p.flag = Some(crate::model::Flag { code: "US".into(), name: "United States".into(), board: false });
     p.files[0].md5 = Some("u8Vh17KxaDvUJ6bBcmE/eg==".into());
     a.on_key(KeyEvent::from(KeyCode::Char('.')));
     a.on_key(KeyEvent::from(KeyCode::Char('X')));

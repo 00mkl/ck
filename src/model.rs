@@ -181,19 +181,29 @@ pub struct Flag {
     pub code: String,
     /// `United States`, `Anarcho-Capitalist`; may be empty.
     pub name: String,
+    /// It's one the board lets posters pick (4chan's /pol/), not a country's: its code
+    /// (`AC`) would read as a country's.
+    #[serde(default)]
+    pub board: bool,
 }
 
 impl Flag {
     /// A flag from what the site says, if it says anything.
     pub fn new(code: Option<String>, name: Option<String>) -> Option<Self> {
         let (code, name) = (clean(code).unwrap_or_default(), clean(name).unwrap_or_default());
-        (!code.is_empty() || !name.is_empty()).then_some(Self { code, name })
+        (!code.is_empty() || !name.is_empty()).then_some(Self { code, name, board: false })
     }
 
-    /// What a post's header shows: a two-letter code as it is (`US`), else the name.
+    /// A flag the board lets posters pick, from what the site says.
+    pub fn of_board(code: Option<String>, name: Option<String>) -> Option<Self> {
+        Self::new(code, name).map(|f| Self { board: true, ..f })
+    }
+
+    /// What a post's header shows: a country's two-letter code as it is (`US`), else the
+    /// name.
     pub fn short(&self) -> String {
         let two = self.code.len() == 2 && self.code.chars().all(|c| c.is_ascii_alphabetic());
-        if two || self.name.is_empty() { self.code.to_ascii_uppercase() } else { self.name.clone() }
+        if (two && !self.board) || self.name.is_empty() { self.code.to_ascii_uppercase() } else { self.name.clone() }
     }
 }
 

@@ -159,7 +159,7 @@ boards = [
   { uri = "music", title = "Musical and Audible Media" },
   { uri = "vis", title = "Visual Media" },
   { uri = "hum", title = "Humanity" },
-  { uri = "drg", title = "Drugs 3.0" },
+  { uri = "drug", title = "Drugs 3.0" },
   { uri = "zzz", title = "Consciousness and Dreams" },
   { uri = "layer", title = "Layer" },
   { uri = "q", title = "Questions and Complaints" },
@@ -189,7 +189,24 @@ name = "uboachan"
 kind = "vichan"
 url = "https://uboachan.net"
 thumb_ext = "png"
-boards = [{ uri = "yn", title = "Yume Nikki" }]
+boards = [
+  { uri = "yn", title = "Yume Nikki General" },
+  { uri = "yndd", title = "Yume Nikki - Dream Diary" },
+  { uri = "fg", title = "Fangames" },
+  { uri = "yume", title = "Dreams" },
+  { uri = "o", title = "Art / Oekaki" },
+  { uri = "lit", title = "Literature / Fanfic / Poetry" },
+  { uri = "media", title = "Music / Uploads" },
+  { uri = "og", title = "Other Games" },
+  { uri = "ig", title = "RPGMaker / Gamedev" },
+  { uri = "2", title = "日本 ~redux~" },
+  { uri = "ot", title = "Off-topic" },
+  { uri = "cc", title = "Creepy-Cute" },
+  { uri = "x", title = "Paranormal / Occult" },
+  { uri = "sugg", title = "Suggestions / Meta" },
+  { uri = "hikki", title = "NEET / Advice" },
+  { uri = "rec", title = "Ex-NEET / Recovery" },
+]
 
 [[site]]
 name = "endchan"

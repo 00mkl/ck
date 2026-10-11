@@ -1379,6 +1379,9 @@ impl App {
     /// `M`: all posts, only those with files, all with their images hidden, and round again.
     fn cycle_media(&mut self) {
         let Some(t) = self.reading() else { return };
+        if t.media == Media::All && t.posts.iter().all(|p| p.files.is_empty()) {
+            return self.info("No post here has a file");
+        }
         let next = t.media.next();
         let n = t.set_media(next);
         let talking = t.conversation.is_some();

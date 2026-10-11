@@ -711,7 +711,7 @@ mod tests {
         use crate::model::Flag;
         let p = Post {
             id: Some("Ab3d+f".into()),
-            flag: Some(Flag { code: "AC".into(), name: "Anarcho-Capitalist".into() }),
+            flag: Some(Flag { code: "AC".into(), name: "Anarcho-Capitalist".into(), board: false }),
             poster: crate::model::Poster::new(None, "Anonymous", Some("!!Tr1p".into()), None),
             ..post("x")
         };
@@ -727,7 +727,7 @@ mod tests {
             assert!(f.check("4chan", "pol", &p, false).hidden.is_some(), "{c:?}");
         }
         // A custom flag without a code: by its name.
-        let p = Post { flag: Some(Flag { code: String::new(), name: "Tatarstan".into() }), ..post("Anonymous") };
+        let p = Post { flag: Some(Flag { code: String::new(), name: "Tatarstan".into(), board: false }), ..post("Anonymous") };
         assert_eq!(candidates(&p, None, false, None).iter().find(|c| c.field == Field::Flag).unwrap().pattern, "^Tatarstan$");
         // Nothing of the kind on a board without them.
         assert!(candidates(&post("Anonymous"), None, false, None).iter().all(|c| !matches!(c.field, Field::Id | Field::Flag | Field::Tripcode)));

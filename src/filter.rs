@@ -575,7 +575,7 @@ pub mod tests {
         let p = Post {
             no: 487211260,
             id: Some("Ab3dEf+g".into()),
-            flag: Some(Flag { code: "PL".into(), name: "Poland".into() }),
+            flag: Some(Flag { code: "PL".into(), name: "Poland".into(), board: false }),
             poster: crate::model::Poster::new(None, "Anonymous", Some("!!Fz3mQwerty".into()), Some("mod".into())),
             files: vec![Attachment { width: Some(1920), height: Some(1080), size: Some(3 << 20), ..Default::default() }],
             ..post("", "")

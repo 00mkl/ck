@@ -6023,3 +6023,20 @@ fn a_thread_on_a_wide_screen_keeps_to_its_width() {
     draw_at(&mut app, 200, 30);
     assert!(area(&app).width > 190);
 }
+
+#[test]
+fn the_show_menu_offers_only_what_changes_something() {
+    let mut app = fourchan_thread(&[1, 2]);
+    let ids = |t: &mut ThreadView| t.posts.iter_mut().zip(["a", "b"]).for_each(|(p, id)| p.id = Some(id.into()));
+    ids(app.tab.thread.as_mut().unwrap());
+    app.act(Action::Show);
+    let rows: Vec<String> = app.menu().unwrap().items.iter().map(|i| format!("{i:?}")).collect();
+    // One post by this ID, and no files: neither "this poster's posts" nor "with files".
+    assert!(!rows.iter().any(|r| r.contains("Poster") || r.contains("Media")), "{rows:?}");
+    // Their keys say why.
+    press(&mut app, "I");
+    assert_eq!(app.footer.get().map(|f| f.text.as_str()), Some("This is ID:a's only post here"));
+    app.act(Action::Show);
+    press(&mut app, "M");
+    assert_eq!(app.footer.get().map(|f| f.text.as_str()), Some("No post here has a file"));
+}
