@@ -2104,3 +2104,12 @@ fn reply_box() {
     insta::assert_snapshot!(snapshot(&mut a));
 }
 
+
+#[test]
+fn long_file_names_are_cut_in_the_middle() {
+    let hash = "fc03dfc52f8b5322798543798be2beea1bb03a48285d1cd36bc9736fc77132dc.jpg";
+    let short = crate::ui::shorten_name(hash, 40);
+    assert_eq!(crate::markup::columns(&short), 40);
+    assert!(short.starts_with("fc03dfc52f8") && short.ends_with("77132dc.jpg") && short.contains('…'), "{short}");
+    assert_eq!(crate::ui::shorten_name("cat.png", 40), "cat.png");
+}

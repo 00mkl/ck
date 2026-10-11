@@ -524,7 +524,9 @@ fn post_lines(ctx: &PostCtx, width: usize) -> (Vec<Line<'static>>, Vec<Spot>) {
         let meta = file_facts(file);
         let meta = if meta.is_empty() { String::new() } else { format!("  {}", meta.join(" · ")) };
         let k = index(&Part::File(k)).unwrap_or(usize::MAX);
-        let line = Line::from(vec![Span::styled(file.filename.clone(), tag(Style::new().fg(t.text), k)), Span::styled(meta, dim())]);
+        // A very long name (a hash) is cut in the middle: the links panel has it whole.
+        let name = shorten_name(&file.filename, 40);
+        let line = Line::from(vec![Span::styled(name, tag(Style::new().fg(t.text), k)), Span::styled(meta, dim())]);
         out.extend(markup::wrap(&line, width));
     }
     if !p.body.is_empty() {

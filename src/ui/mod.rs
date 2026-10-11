@@ -532,8 +532,10 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     if let Some((at, of)) = app.position() {
         right.extend([Span::styled(format!("{at}/{of}  {}%", at.saturating_mul(100) / of.max(1)), Style::new().fg(t.on_bar)), Span::raw("  ")]);
     }
+    // Files being saved (`d`, `. D`): how many of how many.
     if d.running > 0 {
-        right.extend([chip(format!("⇣ {}/{}", d.done + d.skipped + d.failed, d.total), t.text, t.surface_high), Span::raw(" ")]);
+        let failed = if d.failed > 0 { format!(", {} failed", d.failed) } else { String::new() };
+        right.extend([chip(format!("⇣ saving {} of {} files{failed}", d.done + d.skipped + d.failed, d.total), t.text, t.surface_high), Span::raw(" ")]);
     }
     if !app.refreshing.is_empty() {
         right.extend([chip(format!("↻ {}", app.refreshing.len()), t.text, t.surface_high), Span::raw(" ")]);
@@ -932,7 +934,20 @@ pub(crate) fn truncate(s: &str, width: usize) -> String {
     format!("{}…", markup::split_at_columns(s, width.saturating_sub(1)).0)
 }
 
-/// `s` padded with spaces to `width` cells (as drawn); never cut.
+/// A file's name at most `width` columns, cut in the middle (a name made of a long hash,
+/// as kohlchan's are, keeps its start, end and extension).
+pub(crate) fn shorten_name(name: &str, width: usize) -> String {
+    let n = markup::columns(name);
+    if n <= width || width < 8 {
+        return name.to_string();
+    }
+    let tail = (width - 1) / 2;
+    let head = width - 1 - tail;
+    let start = markup::split_at_columns(name, head).0;
+    let end = markup::split_at_columns(name, n - tail).1;
+    format!("{start}…{end}")
+}
+
 /// `area` at most `width` wide (`text_width`; 0: as it is), centered: long lines are hard
 /// to read.
 fn readable(width: u16, area: Rect) -> Rect {
@@ -942,6 +957,7 @@ fn readable(width: u16, area: Rect) -> Rect {
     }
 }
 
+/// `s` padded with spaces to `width` cells (as drawn); never cut.
 pub(crate) fn pad(s: &str, width: usize) -> String {
     format!("{s}{}", " ".repeat(width.saturating_sub(markup::columns(s))))
 }

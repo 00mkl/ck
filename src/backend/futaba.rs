@@ -180,6 +180,11 @@ pub fn parse_boards(v: &Value) -> Vec<Board> {
 
 /// Where each thread is from `threads.json`: an array of pages with their `threads`. Pages
 /// count by their place, as 4chan numbers them from 1 and vichan from 0.
+/// When each thread last changed, from `threads.json`.
+pub fn parse_bumped(v: &Value) -> std::collections::HashMap<u64, i64> {
+    items(v).flat_map(|p| items(&p["threads"])).filter_map(|t| Some((as_u64(&t["no"])?, as_i64(&t["last_modified"])?))).collect()
+}
+
 pub fn parse_pages(v: &Value) -> ThreadPages {
     let mut out = ThreadPages::default();
     for (i, p) in items(v).enumerate() {
@@ -209,7 +214,18 @@ impl Backend for Futaba {
 
     fn catalog(&self, board: &str, _partial: Partial<Post>) -> Result<Vec<Post>> {
         let v = get_json(&format!("{}/{}/catalog.json", self.api, enc(board)))?;
-        Ok(self.parse_catalog(board, &v))
+        let mut posts = self.parse_catalog(board, &v);
+        // Some vichan sites (8kun) leave when each thread last changed out of the catalog;
+        // threads.json has it. Without it the catalog is still whole.
+        if !posts.is_empty() && posts.iter().all(|p| p.bumped.is_none())
+            && let Ok(t) = get_json(&format!("{}/{}/threads.json", self.api, enc(board)))
+        {
+            let bumped = parse_bumped(&t);
+            for p in &mut posts {
+                p.bumped = bumped.get(&p.no).copied();
+            }
+        }
+        Ok(posts)
     }
 
     fn thread_unchecked(&self, board: &str, no: u64) -> Result<Vec<Post>> {
@@ -374,6 +390,8 @@ mod tests {
         assert_eq!((p.page.get(&105076684), p.page.get(&109980439)), (Some(&1), Some(&11)));
         let p = super::parse_pages(&fixture("vichan_pages.json"));
         assert_eq!((p.of, p.page.get(&42742), p.page.get(&39212)), (13, Some(&1), Some(&13)));
+        // And when each thread last changed, for catalogs that don't say (8kun's).
+        assert_eq!(super::parse_bumped(&fixture("vichan_pages.json")).get(&42742), Some(&1790105649));
         // Nothing usable: no pages, and threads without numbers left out.
         assert_eq!(super::parse_pages(&serde_json::json!({"threads": []})).of, 0);
         let odd = super::parse_pages(&serde_json::json!([{"threads": [{"no": "x"}, {"no": 5}]}, 3, {"page": 9}]));
