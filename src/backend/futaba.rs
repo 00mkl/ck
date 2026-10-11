@@ -148,6 +148,8 @@ impl Futaba {
             board: own_board,
             locked: as_bool(&v["closed"]) || as_bool(&v["locked"]),
             bumplimit: as_bool(&v["bumplimit"]),
+            // The newest of the replies shown, else when the thread last changed.
+            bumped: items(&v["last_replies"]).filter_map(|r| as_i64(&r["time"])).max().or_else(|| as_i64(&v["last_modified"])),
             ..parsed.into()
         }
     }
@@ -263,6 +265,8 @@ mod tests {
         assert_eq!(cat.len(), 6);
         assert!(cat[0].sticky && cat[0].locked);
         assert!(cat.iter().all(|p| p.replies.is_some()));
+        // When it last had a reply: the newest of those shown.
+        assert_eq!(cat[1].bumped, Some(1790894192));
 
         let posts = b.parse_thread("g", &fixture("4chan_thread.json"));
         assert_eq!(posts[0].no, 109949798);

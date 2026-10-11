@@ -595,7 +595,15 @@ impl App {
             _ => match m.items.iter().position(|it| matches!(it, MenuItem::Act(a, _) if self.keys.runs(*a, pressed))) {
                 Some(i) => self.run_menu_item(i),
                 None if closes => self.popup = None,
-                None => {}
+                // A command left out of the menu as it does nothing here (`. U` with nothing
+                // unread) runs anyway, to say why.
+                None => {
+                    let scope = self.scope();
+                    if let Some(a) = Action::ALL.iter().copied().find(|&a| a.applies_in(scope) && self.keys.runs(a, pressed)) {
+                        self.popup = None;
+                        self.run_action(a);
+                    }
+                }
             },
         }
     }

@@ -4,8 +4,8 @@ expression: snapshot(&mut a)
 ---
  ck  History                                                                              2 threads
 
-  ▌ 4chan      /g/       Snapshot thread                                                   2m ago
-    4chan      /b/       Random thread                                                     1d ago
+  ▌ 4chan        /g/       Snapshot thread                                                 2m ago
+    4chan        /b/       Random thread                                                   1d ago
 
 
 

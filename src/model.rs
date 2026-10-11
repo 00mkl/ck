@@ -290,6 +290,8 @@ pub struct Post {
     pub locked: bool,
     /// The thread has reached its bump limit (4chan says so on the OP).
     pub bumplimit: bool,
+    /// When the thread last had a reply (or a bump), when the site says (Unix seconds).
+    pub bumped: Option<i64>,
     /// The board the thread is on, when the site says. Overboards mix threads from many
     /// boards, so it can differ from the board being browsed.
     pub board: Option<String>,

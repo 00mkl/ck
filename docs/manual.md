@@ -308,7 +308,8 @@ one brings it back.
 quoted thread `enter` would go to). Each tab has its own place: view, board, catalog,
 thread, and jump trail. The tabs show as chips under the top bar when there's more than
 one, their titles whole while they fit and the longest cut first when they don't (a board
-names its site too when the tabs are on more than one: `2ch /b/`); `]` and `[` move between them (or click one), `ctrl-w` closes one (not
+and thread names its site too when the tabs are on more than one: `2ch /b/`,
+`desuarchive: Thread subject`); `]` and `[` move between them (or click one), `ctrl-w` closes one (not
 the last). A tab on a watched thread counts the posts it has gained since you read it,
 like `2 Thread subject (5)`. Up to 9. Only the tab on screen refreshes its thread in the background;
 another tab's thread is refreshed when you come back to it (watched threads are refreshed
@@ -601,6 +602,10 @@ Watched shows "follows /lmg/" on followed threads; `. F` again stops following.
 
 ### What's new in a catalog
 
+Each thread says how old it is and, once it has replies, how long since the last one
+(`308 replies · 167 images · 1y old · last reply 2h ago`): an old general can be the
+liveliest thread on a board. Narrower, and in the grid, it's the time since the last reply.
+
 Catalogs mark threads that weren't there on your previous visit with "new" (the header
 counts them), and threads you've opened before show how many replies they've gained since,
 like `+12`. A board's first catalog marks nothing new, even when you've opened some of
@@ -748,9 +753,11 @@ needs an app bundle, which isn't made yet.
 ## Searching archives
 
 `. A` in a catalog searches the board's posts on a FoolFuuka archive: the site itself if
-it's one (desuarchive, palanq, b4k), or the archive configured for it with `archive`
-(4chan's boards use desuarchive in the default config). Results show each post with its
-thread; `enter` opens the thread on the archive with the post selected, `esc` goes back.
+it's one (desuarchive, palanq, b4k), or the first of the archives configured for it with
+`archives` that keeps the board. Results show each post with its thread, from a little before the
+first word searched for, every place one is highlighted. `enter` opens the thread with the
+post selected: on the site you searched from while it's still there (live, to read new posts
+and reply), else on the archive; `esc` goes back.
 Each page of 25 results is one request; going down past the last one (or `n`) loads the
 next. Archives limit how often you can search; when they say no, ck shows their message.
 Posts your filters or hidden words hide, or that you've hidden, are left out of the
@@ -856,12 +863,13 @@ ck draws flat: no lines or boxes, just areas of color. The screen is the darkest
 catalog entries and posts are cards a step lighter, and popups another step up; the
 selected row, card or post is tinted and marked by a stripe in the theme's accent color.
 
-`,` opens Settings. They open over where you are: what's loading there goes on loading
+`,` opens Settings (`/` filters them by name, what they're for or their value). They open over where you are: what's loading there goes on loading
 and lands under them (a post looked up opens its thread there), and `esc` closes them on
 wherever that left you. The thread under them isn't refreshed as the open one meanwhile:
 if it's watched, its new posts count as unread, as any watched thread's do. `:` from
 Settings closes them and goes from the place under them. Their options are saved to your
-config file, keeping your comments (a symlinked config is written through the link, and
+config file, keeping your comments (a setting the file has commented out, as the default
+does, is written in its place, under its explanation) (a symlinked config is written through the link, and
 keeps its permissions), and the file is created from the default if you don't have one
 yet:
 

@@ -29,6 +29,9 @@ pub struct Opening {
     pub conversation: Option<u64>,
     /// It's the thread last session had open: if it's gone, its catalog instead.
     pub restoring: bool,
+    /// It's a thread found in this archive (a site's index): if it's gone from the site, the
+    /// archive's copy instead.
+    pub or_archive: Option<usize>,
 }
 
 impl Opening {

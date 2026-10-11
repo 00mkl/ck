@@ -335,7 +335,9 @@ pub fn key_rows() -> Vec<Result<Action, &'static str>> {
 impl App {
     /// Enter on a setting.
     pub fn activate_setting(&mut self) {
-        if let Some(s) = self.selected_row(View::Settings).and_then(|i| settings().nth(i)) {
+        if let Some(super::RowKey::Setting(i)) = self.selected_key(View::Settings)
+            && let Some(s) = settings().nth(i)
+        {
             (s.activate)(self);
         }
     }

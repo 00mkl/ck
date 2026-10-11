@@ -701,7 +701,7 @@ fn footer_hints(app: &App) -> Vec<(String, &'static str)> {
             (k(Action::Remove), "remove"),
             (k(Action::Search), "filter"),
         ],
-        View::Settings => vec![("enter".into(), "change"), ("esc".into(), "back")],
+        View::Settings => vec![("enter".into(), "change"), (k(Action::Search), "filter"), ("esc".into(), "back")],
         View::Search if app.tab.search.as_ref().is_some_and(|s| s.saved.is_some()) => {
             vec![("enter".into(), "read the saved copy"), (k(Action::Reload), "search again"), ("esc".into(), "back")]
         }

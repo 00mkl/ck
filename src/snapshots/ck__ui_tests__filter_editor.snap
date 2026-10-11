@@ -31,4 +31,4 @@ expression: snapshot(&mut a)
     Read                                                                                    read…
           Not a valid pattern: unclosed group
   Sites
- enter change   esc back   ? help                                                         1/25  4%
+ enter change   / filter   esc back   ? help                                              1/25  4%

@@ -90,15 +90,21 @@ pub(super) fn draw_sites(f: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
+/// The site column of Watched, History and Saved: as wide as the longest site name (up to
+/// 20), and a space.
+fn site_width(app: &App) -> usize {
+    app.sites.iter().map(|s| markup::columns(&s.cfg.name)).max().unwrap_or(0).clamp(9, 20) + 2
+}
+
 /// `site  /board/  subject`, the shared start of Watched, History and Saved rows, in a row
 /// `width` wide: the subject gets what's left (`spread` cuts it). On a narrow screen the
 /// site goes, and the board takes only its own room.
-fn thread_row(key: &crate::store::ThreadKey, subject: &str, width: usize) -> Vec<Span<'static>> {
+fn thread_row(key: &crate::store::ThreadKey, subject: &str, width: usize, site_w: usize) -> Vec<Span<'static>> {
     let t = theme();
     let board = format!("/{}/", key.board);
     let mut row = Vec::new();
     if width >= 70 {
-        row.push(Span::styled(pad(&key.site, 11), dim()));
+        row.push(Span::styled(col(&key.site, site_w), dim()));
     }
     row.push(Span::styled(if width >= 50 { pad(&board, 10) } else { format!("{board} ") }, bold(t.primary)));
     row.push(Span::styled(subject.to_string(), Style::new().fg(t.text)));
@@ -108,6 +114,7 @@ fn thread_row(key: &crate::store::ThreadKey, subject: &str, width: usize) -> Vec
 pub(super) fn draw_watched(f: &mut Frame, app: &mut App, area: Rect) {
     let t = theme();
     let width = area.width.saturating_sub(PAD + 1) as usize;
+    let site_w = site_width(app);
     let rows = app.visible_watched();
     let mut state = app.list_state(View::Watched);
     app.drawn.body = draw_rows(f, area, rows.len(), &mut state, (1, 0), None, &|_| false, &mut |k| {
@@ -138,7 +145,7 @@ pub(super) fn draw_watched(f: &mut Frame, app: &mut App, area: Rect) {
             None => {}
         }
         right.push(Span::styled(plural(w.posts, "post"), dim()));
-        vec![spread(thread_row(&w.key, &w.subject, width), right, width)]
+        vec![spread(thread_row(&w.key, &w.subject, width, site_w), right, width)]
     });
     app.list_scrolled(View::Watched, state.offset());
     if app.drawn.body.is_none() {
@@ -149,11 +156,12 @@ pub(super) fn draw_watched(f: &mut Frame, app: &mut App, area: Rect) {
 
 pub(super) fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
     let width = area.width.saturating_sub(PAD + 1) as usize;
+    let site_w = site_width(app);
     let rows = app.visible_history();
     let mut state = app.list_state(View::History);
     app.drawn.body = draw_rows(f, area, rows.len(), &mut state, (1, 0), None, &|_| false, &mut |k| {
         let Some(v) = rows.get(k).and_then(|&i| app.store.history.get(i)) else { return Vec::new() };
-        vec![spread(thread_row(&v.key, &v.subject, width), vec![Span::styled(ago(v.opened, app.clock), dim())], width)]
+        vec![spread(thread_row(&v.key, &v.subject, width, site_w), vec![Span::styled(ago(v.opened, app.clock), dim())], width)]
     });
     app.list_scrolled(View::History, state.offset());
     if app.drawn.body.is_none() {
@@ -164,6 +172,7 @@ pub(super) fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
 pub(super) fn draw_saved(f: &mut Frame, app: &mut App, area: Rect) {
     let t = theme();
     let width = area.width.saturating_sub(PAD + 1) as usize;
+    let site_w = site_width(app);
     let rows = app.visible_saved();
     let mut state = app.list_state(View::Saved);
     app.drawn.body = draw_rows(f, area, rows.len(), &mut state, (1, 0), None, &|_| false, &mut |k| {
@@ -175,7 +184,7 @@ pub(super) fn draw_saved(f: &mut Frame, app: &mut App, area: Rect) {
             right.extend([chip("watching", t.on_primary_container, t.primary_container), Span::raw(" ")]);
         }
         right.push(Span::styled(format!(" No.{}  ·  {}  ·  {}", m.key.no, plural(m.posts, "post"), ago(m.saved, app.clock)), dim()));
-        vec![spread(thread_row(&m.key, &m.subject, width), right, width)]
+        vec![spread(thread_row(&m.key, &m.subject, width, site_w), right, width)]
     });
     app.list_scrolled(View::Saved, state.offset());
     if app.drawn.body.is_none() {
@@ -280,7 +289,13 @@ pub(super) fn draw_catalog(f: &mut Frame, app: &mut App, area: Rect) {
                     facts.push(plural(images, "image"));
                 }
             }
-            facts.push(ago(p.time, app.clock));
+            // How old it is, and (when it has replies) how long since the last: an old thread
+            // can be the liveliest.
+            match last_reply(p) {
+                Some(at) if !short => facts.extend([format!("{} old", ago(p.time, app.clock).trim_end_matches(" ago")), format!("last reply {}", ago(at, app.clock))]),
+                Some(at) => facts.push(ago(at, app.clock)),
+                None => facts.push(ago(p.time, app.clock)),
+            }
             facts.join(" · ")
         };
         let head_w = markup::spans_columns(&head);
@@ -362,6 +377,11 @@ pub(super) fn draw_catalog(f: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
+/// When a catalog thread last had a reply, if it has any and the site says.
+fn last_reply(p: &Post) -> Option<i64> {
+    p.bumped.filter(|&b| p.replies.unwrap_or(0) > 0 && b > p.time)
+}
+
 /// Before a catalog thread you watch.
 const WATCHING: &str = "◉ ";
 
@@ -388,7 +408,8 @@ pub(super) fn draw_search(f: &mut Frame, app: &mut App, area: Rect) {
     };
     let width = area.width.saturating_sub(PAD + 2) as usize;
     let more = app.more_results();
-    let needle = s.query.to_lowercase();
+    // The words searched for, to show and highlight in each result.
+    let words: Vec<String> = s.query.to_lowercase().split_whitespace().map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_string()).filter(|w| w.chars().count() > 1).collect();
     let visible = app.visible_hits();
     let mut build = |row: usize| -> Vec<Line<'static>> {
         let Some(&k) = visible.get(row) else { return Vec::new() };
@@ -413,11 +434,8 @@ pub(super) fn draw_search(f: &mut Frame, app: &mut App, area: Rect) {
         }
         let right = vec![Span::styled(format!("No.{}  ·  {}", p.no, ago(p.time, app.clock)), dim())];
         let mut lines = vec![spread(head, right, width)];
-        match key {
-            // The text around what matched, highlighted.
-            Some(_) => lines.extend(around_match(p.plain_text(), &needle, width)),
-            None => lines.extend(excerpt(p.plain_text(), Style::new().fg(t.text), width, 2)),
-        }
+        // The text around what matched, highlighted.
+        lines.extend(around_match(p.plain_text(), &words, width, 2));
         lines
     };
     let hit = draw_rows(f, area, visible.len(), &mut state, (3, 1), Some(t.surface), &|_| false, &mut build);
@@ -436,28 +454,49 @@ pub(super) fn draw_search(f: &mut Frame, app: &mut App, area: Rect) {
     app.list_scrolled(View::Search, state.offset());
 }
 
-/// A line of `text` around the first place `needle` (lowercase) is, with it highlighted; the
-/// start of the text when it's elsewhere (the name, a file name).
-fn around_match(text: &str, needle: &str, width: usize) -> Vec<Line<'static>> {
+/// `rows` lines of `text` from a little before the first of `words` (lowercase) in it, every
+/// place one is highlighted; without one, from its start.
+fn around_match(text: &str, words: &[String], width: usize, rows: usize) -> Vec<Line<'static>> {
     let t = theme();
+    let (plain, hl) = (Style::new().fg(t.text), search_hl());
     let lower = text.to_lowercase();
-    // Lowercasing can change lengths (rarely): then the start of the text.
-    let at = lower.find(needle).filter(|_| lower.len() == text.len() && !needle.is_empty());
-    let Some(at) = at else { return excerpt(text, Style::new().fg(t.text), width, 1) };
-    let end = at + needle.len();
-    // Some context before it, from a character boundary.
-    let mut start = at.saturating_sub(width / 3);
+    // Lowercasing can change lengths (rarely): then nothing is found.
+    let mut found: Vec<(usize, usize)> = if lower.len() == text.len() { words.iter().flat_map(|w| lower.match_indices(w.as_str()).map(|(at, m)| (at, at + m.len()))).collect() } else { Vec::new() };
+    found.sort_unstable();
+    let Some(&(first, _)) = found.first() else { return excerpt(text, plain, width, rows) };
+    // Some context before it, from the start of a word.
+    let mut start = first.saturating_sub(width / 3);
     while !text.is_char_boundary(start) {
         start -= 1;
     }
-    let (before, hit, after) = (text.get(start..at).unwrap_or(""), text.get(at..end).unwrap_or(""), text.get(end..).unwrap_or(""));
-    let lead = if start > 0 { "…" } else { "" };
-    let line = Line::from(vec![
-        Span::styled(format!("{lead}{before}"), Style::new().fg(t.text)),
-        Span::styled(hit.to_string(), search_hl()),
-        Span::styled(after.to_string(), Style::new().fg(t.text)),
-    ]);
-    vec![line]
+    if start > 0 {
+        start = text.get(start..first).and_then(|b| b.find(' ')).map_or(start, |sp| start + sp + 1);
+    }
+    let mut spans = vec![Span::styled(if start > 0 { "…" } else { "" }, plain)];
+    let mut at = start;
+    for (s, e) in found.into_iter().filter(|&(s, _)| s >= start) {
+        // Overlapping matches (one word inside another) join the first.
+        if s < at {
+            continue;
+        }
+        spans.push(Span::styled(text.get(at..s).unwrap_or_default().to_string(), plain));
+        spans.push(Span::styled(text.get(s..e).unwrap_or_default().to_string(), hl));
+        at = e;
+    }
+    spans.push(Span::styled(text.get(at..).unwrap_or_default().to_string(), plain));
+    let mut lines = markup::wrap(&Line::from(spans), width);
+    if lines.len() > rows {
+        lines.truncate(rows);
+        // The last line shown ends in "…" to say there's more.
+        if let Some(last) = lines.last_mut() {
+            let mut cut = super::cut(std::mem::take(&mut last.spans), width.saturating_sub(1));
+            if !cut.last().is_some_and(|s| s.content.ends_with('…')) {
+                cut.push(Span::styled("…", plain));
+            }
+            last.spans = cut;
+        }
+    }
+    lines
 }
 
 /// Grid cards: a thumbnail over three lines of text.
@@ -536,7 +575,8 @@ fn draw_grid(f: &mut Frame, app: &mut App, area: Rect) {
         }
         // The counts in words as far as the card has room: "94 replies · 61 images · 2d",
         // then without the images, then as "R94 I61 · 2d".
-        let age = ago(p.time, app.clock).trim_end_matches(" ago").to_string();
+        // Since the last reply (the thread's age without one).
+        let age = ago(last_reply(p).unwrap_or(p.time), app.clock).trim_end_matches(" ago").to_string();
         let room = usize::from(w).saturating_sub(markup::spans_columns(&facts));
         let counts = match p.replies {
             Some(r) => {

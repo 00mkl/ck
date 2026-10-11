@@ -357,11 +357,41 @@ pub fn try_edit_at(path: &Path, f: impl FnOnce(&mut DocumentMut) -> Result<()>) 
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => fresh(),
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
+    let before = doc.clone();
     f(&mut doc)?;
+    let out = place_new_keys(&before, &doc);
     // Don't write something ck itself couldn't read back.
-    let out = doc.to_string();
     toml::from_str::<Config>(&out).with_context(|| format!("the edited {} wouldn't load", path.display()))?;
     crate::atomic::write(path, out.as_bytes())
+}
+
+/// `doc` as text, with the top-level keys it has and `before` didn't moved to where the
+/// config has them commented out (`# key = …`, as config.example.toml does), under their
+/// explanations, instead of after the last key. Only where that's before any table, and
+/// only when it reads back the same.
+fn place_new_keys(before: &DocumentMut, doc: &DocumentMut) -> String {
+    let mut text = doc.to_string();
+    let added = doc.as_table().iter().filter(|(k, item)| item.is_value() && before.get(k).is_none()).map(|(k, _)| k.to_string());
+    for key in added.collect::<Vec<_>>() {
+        let mut lines: Vec<&str> = text.lines().collect();
+        let tables = lines.iter().position(|l| l.trim_start().starts_with('[')).unwrap_or(lines.len());
+        let set = lines.iter().position(|l| l.starts_with(&format!("{key} =")));
+        let example = lines.iter().position(|l| l.starts_with(&format!("# {key} =")));
+        let (Some(set), Some(example)) = (set, example) else { continue };
+        if set >= tables || example >= tables {
+            continue;
+        }
+        let line = lines.remove(set);
+        if let Some(slot) = lines.get_mut(if example > set { example - 1 } else { example }) {
+            *slot = line;
+        }
+        let moved = lines.join("\n") + if text.ends_with('\n') { "\n" } else { "" };
+        let same = matches!((moved.parse::<toml::Table>(), text.parse::<toml::Table>()), (Ok(a), Ok(b)) if a == b);
+        if same {
+            text = moved;
+        }
+    }
+    text
 }
 
 /// Make `theme = name` the active theme. A ck 0.2 `[theme]` table is kept as
@@ -716,6 +746,26 @@ mod tests {
             f(d);
             Ok(())
         })
+    }
+
+    #[test]
+    fn a_new_setting_takes_the_place_of_its_commented_example() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, DEFAULT_CONFIG).unwrap();
+        edit_at(&path, |d| {
+            d["download_dir"] = value("~/dl/{site}");
+            set_theme(d, "nord");
+        })
+        .unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        let line = |start: &str| text.lines().position(|l| l.starts_with(start));
+        // Each under its explanation, where the example was; nothing else changed.
+        assert_eq!((line("# download_dir ="), line("# theme =")), (None, None));
+        let at = line("download_dir = \"~/dl/{site}\"").unwrap();
+        assert!(text.lines().nth(at - 1).unwrap().starts_with("# is your Downloads folder"), "{text}");
+        assert!(line("theme = \"nord\"").unwrap() < at);
+        assert_eq!(text.lines().count(), DEFAULT_CONFIG.lines().count());
     }
 
     #[test]
