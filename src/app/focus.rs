@@ -99,7 +99,7 @@ impl App {
         self.tab.popup = Some(TabPopup::Viewer(Viewer::new(files, k, link)));
     }
 
-    /// A quote link: the post, when it's in this thread (`u` comes back); else where it leads.
+    /// A quote link: the post, when it's in this thread (ctrl-o comes back); else where it leads.
     fn go_to_quote(&mut self, l: &Link) {
         if let Some(t) = &mut self.tab.thread
             && let Some(n) = l.post
@@ -287,7 +287,7 @@ impl App {
         (title, items, rows)
     }
 
-    /// Whether `u` has somewhere to go back to: an earlier post still here, or the thread
+    /// Whether ctrl-o has somewhere to go back to: an earlier post still here, or the thread
     /// before.
     pub(crate) fn can_jump_back(&self) -> bool {
         self.tab.thread.as_ref().is_some_and(|t| t.jumps.iter().any(|no| t.index.contains_key(no))) || !self.tab.trail.is_empty()

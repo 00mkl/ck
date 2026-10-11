@@ -654,34 +654,36 @@ fn vim_counts_prefixes_and_the_jump_list() {
     let keys = |app: &mut App, keys: &str| keys.chars().for_each(|c| app.on_key(KeyEvent::from(KeyCode::Char(c))));
     // A count repeats a move; the footer shows it while it waits.
     keys(&mut app, "3");
-    assert_eq!(app.pending.and_then(Pending::shown).as_deref(), Some("3"));
+    assert_eq!(app.pending.map(Pending::shown).as_deref(), Some("3"));
     keys(&mut app, "j");
-    assert_eq!((at(&app), app.pending.and_then(Pending::shown)), (4, None));
+    assert_eq!((at(&app), app.pending.map(Pending::shown)), (4, None));
     // 7G goes to the seventh post, gg to the first, G to the last: as the ruler says.
     keys(&mut app, "7G");
     assert_eq!(at(&app), 7);
-    // Vim's 3gg is 3g with a g after it that changes nothing.
-    keys(&mut app, "3gg");
-    assert_eq!((at(&app), app.pending.and_then(Pending::shown)), (3, None));
+    // 3gg: the third post (3g waits for its second key, g or t).
+    keys(&mut app, "3g");
+    assert_eq!((at(&app), app.pending.map(Pending::shown).as_deref()), (7, Some("3g")));
+    keys(&mut app, "g");
+    assert_eq!((at(&app), app.pending.map(Pending::shown)), (3, None));
     keys(&mut app, "gg");
     assert_eq!((at(&app), app.position()), (1, Some((1, 10))));
     keys(&mut app, "G");
     assert_eq!(app.position(), Some((10, 10)));
     // A key that doesn't finish a prefix drops it and acts as itself.
     keys(&mut app, "gk");
-    assert_eq!((at(&app), app.pending.and_then(Pending::shown)), (9, None));
+    assert_eq!((at(&app), app.pending.map(Pending::shown)), (9, None));
     keys(&mut app, "j");
     // Esc drops a waiting count, and only that.
     keys(&mut app, "5");
     app.on_key(KeyEvent::from(KeyCode::Esc));
-    assert_eq!((app.tab.view(), app.pending.and_then(Pending::shown)), (View::Thread, None));
+    assert_eq!((app.tab.view(), app.pending.map(Pending::shown)), (View::Thread, None));
     // G isn't a jump to come back from: back leaves the thread.
     assert!(!app.tab.thread.as_mut().unwrap().jump_back());
-    // W: the watched threads, the thread left on the jump list; the menu's u comes back to
-    // it, where it was left.
+    // W: the watched threads, the thread left on the jump list; ctrl-o comes back to it,
+    // where it was left.
     keys(&mut app, "W");
     assert_eq!(app.tab.view(), View::Watched);
-    keys(&mut app, ".u");
+    app.on_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL));
     assert_eq!((app.tab.view(), app.tab.pending_thread.as_ref().unwrap().no, app.tab.opening().select), (View::Thread, 1, Some(10)));
 }
 
@@ -5626,4 +5628,162 @@ fn a_board_opened_early_gets_its_title_and_slashes_filter_boards() {
         app.tab.board_list.filter = filter.into();
         assert_eq!(app.visible_boards(), found, "{filter}");
     }
+}
+
+fn press(app: &mut App, keys: &str) {
+    keys.chars().for_each(|c| app.on_key(KeyEvent::from(KeyCode::Char(c))));
+}
+
+fn ctrl(c: char) -> KeyEvent {
+    KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+}
+
+/// `ma` marks a post, `'a` comes back to it and `''` to where that jumped from; an
+/// uppercase mark is found from another thread. `:marks` lists them, `:delmarks` forgets.
+#[test]
+fn marks_come_back_to_posts_from_anywhere() {
+    let mut app = fourchan_thread(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    let at = |app: &App| app.tab.thread.as_ref().unwrap().current().unwrap().no;
+    let first = app.tab.thread.as_ref().unwrap().key().clone();
+    press(&mut app, "4Gma6GmBG");
+    assert_eq!(at(&app), 10);
+    press(&mut app, "'a");
+    assert_eq!(at(&app), 4);
+    press(&mut app, "''");
+    assert_eq!(at(&app), 10, "'' goes back where 'a jumped from");
+    press(&mut app, "m1");
+    assert!(app.footer.get().unwrap().text.contains("a letter"));
+    assert!(app.run_command("marks"));
+    let listed = app.footer.get().unwrap().text.clone();
+    assert!(listed.contains("a No.4") && listed.contains("B No.6"), "{listed}");
+    // Another thread: a lowercase mark is the first thread's, an uppercase one opens it.
+    app.follow(&crate::model::Link { board: None, thread: Some(99), post: None });
+    press(&mut app, "'a");
+    assert_eq!(app.tab.pending_thread.as_ref().unwrap().no, 99);
+    press(&mut app, "'B");
+    assert_eq!((app.tab.pending_thread.as_ref(), app.tab.opening().select), (Some(&first), Some(6)));
+    // Kept with the store, and forgotten by name.
+    assert_eq!(app.store.recall.marks.len(), 2);
+    assert!(app.run_command("delmarks B"));
+    assert_eq!(app.store.recall.marks.iter().map(|m| m.name).collect::<Vec<_>>(), ['a']);
+}
+
+/// `gt` / `gT` go through the tabs, `3gt` to the third; `:tabnew` opens one.
+#[test]
+fn gt_goes_through_the_tabs() {
+    let mut app = local_app();
+    // Not on the home screen, where digits are favorites.
+    assert!(app.run_command("e a/x") && app.run_command("tabnew a/x") && app.run_command("tabnew"));
+    assert_eq!((app.tabs.len(), app.active, app.tab.view()), (3, 2, View::Sites));
+    press(&mut app, "gt");
+    assert_eq!(app.active, 0);
+    press(&mut app, "3gt");
+    assert_eq!(app.active, 2);
+    press(&mut app, "gT");
+    assert_eq!((app.active, app.tab.view()), (1, View::Catalog));
+    press(&mut app, "gT");
+    press(&mut app, "5gt");
+    assert_eq!(app.active, 0);
+    assert!(app.footer.get().unwrap().text.contains("no tab 5"));
+}
+
+/// `H`, `M`, `L`: the post at the top, middle or bottom of the screen, without scrolling;
+/// in a list, the row.
+#[test]
+fn h_m_l_select_what_is_on_screen() {
+    let mut app = thread_app_of(60);
+    press(&mut app, "20G");
+    draw_at(&mut app, 100, 80);
+    let t = |app: &App| (app.tab.thread.as_ref().unwrap().scroll, app.tab.thread.as_ref().unwrap().current().unwrap().no);
+    let (scroll, _) = t(&app);
+    press(&mut app, "H");
+    let top = t(&app).1;
+    press(&mut app, "L");
+    let bottom = t(&app).1;
+    press(&mut app, "M");
+    let middle = t(&app).1;
+    assert!(top < middle && middle < bottom, "{top} {middle} {bottom}");
+    press(&mut app, "2H");
+    assert_eq!(t(&app), (scroll, top + 1), "the second from the top, nothing scrolled");
+    // A list: its rows on screen.
+    let mut app = test_app();
+    draw_at(&mut app, 80, 12);
+    press(&mut app, "L");
+    let last = app.selected_row(View::Sites).unwrap();
+    assert!(last > 3, "{last}");
+    press(&mut app, "H");
+    assert_eq!(app.selected_row(View::Sites), Some(0));
+}
+
+/// ctrl-^ opens the thread read before this one; ctrl-6 is how terminals send it.
+#[test]
+fn ctrl_caret_opens_the_thread_read_before() {
+    let (mut app, key) = history_app();
+    app.on_key(ctrl('6'));
+    assert_eq!(app.tab.pending_thread.as_ref(), Some(&key(3)), "the newest, from a list");
+    app.tab.thread = Some(ThreadView::new(key(3), posts_upto(3)));
+    app.tab.thread.as_mut().unwrap().select(2);
+    app.tab.navigate(View::Thread);
+    app.on_key(ctrl('^'));
+    assert_eq!(app.tab.pending_thread.as_ref(), Some(&key(2)), "from thread 3, the one before it");
+    // And back, at the post it was on.
+    app.store.visit(&key(2), "thread 2", 1, 2, 4);
+    app.tab.thread = Some(ThreadView::new(key(2), posts_upto(2)));
+    app.on_key(ctrl('^'));
+    assert_eq!((app.tab.pending_thread.as_ref(), app.tab.opening().select), (Some(&key(3)), Some(3)));
+}
+
+/// `:` runs commands (any by its `[keys]` name), else goes where it says; up brings back
+/// what was typed before.
+#[test]
+fn the_command_line_runs_commands_and_remembers_them() {
+    let mut app = local_app();
+    let enter = |app: &mut App, line: &str| {
+        app.act(Action::Goto);
+        type_text(app, line);
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+    };
+    enter(&mut app, "watched");
+    assert_eq!(app.tab.view(), View::Watched);
+    enter(&mut app, "export");
+    assert!(app.footer.get().unwrap().text.contains("doesn't work here"));
+    enter(&mut app, "set");
+    assert_eq!(app.tab.view(), View::Settings);
+    enter(&mut app, "colorscheme nope");
+    assert!(app.footer.get().is_some_and(|f| f.text.contains("nope")));
+    enter(&mut app, "a/x");
+    assert_eq!(app.tab.view(), View::Catalog);
+    // Up: the newest line first, then older ones; down comes back to what was typed.
+    app.act(Action::Goto);
+    type_text(&mut app, "s");
+    app.on_key(KeyEvent::from(KeyCode::Up));
+    assert_eq!(app.goto_text(), Some("set"));
+    app.on_key(KeyEvent::from(KeyCode::Down));
+    assert_eq!(app.goto_text(), Some("s"));
+    // Tab completes a command.
+    type_text(&mut app, "et");
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    app.act(Action::Goto);
+    type_text(&mut app, "tabc");
+    app.on_key(KeyEvent::from(KeyCode::Tab));
+    assert_eq!(app.goto_text(), Some("tabclose"));
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    enter(&mut app, "q");
+    assert!(app.quit);
+}
+
+/// A prefix waiting a moment shows what can follow it; at once, nothing (`gg` typed fast
+/// doesn't flash a panel).
+#[test]
+fn a_waiting_prefix_shows_what_can_follow() {
+    let mut app = fourchan_thread(&[1, 2, 3]);
+    let start = Instant::now();
+    app.clock.instant = Some(start);
+    press(&mut app, "g");
+    assert!(app.next_keys().is_none());
+    app.clock.instant = Some(start + NEXT_KEYS_AFTER);
+    let rows = app.next_keys().unwrap();
+    assert!(rows.iter().any(|(k, what)| k == "t" && what.contains("next tab")), "{rows:?}");
+    press(&mut app, "g");
+    assert!(app.next_keys().is_none());
 }

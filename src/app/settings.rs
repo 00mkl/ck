@@ -600,7 +600,7 @@ impl App {
         self.invalidate_layouts();
     }
 
-    fn choose_theme(&mut self, name: &str) {
+    pub(super) fn choose_theme(&mut self, name: &str) {
         match theme::resolve(name, &self.themes) {
             Ok(t) => {
                 self.theme_name = name.to_string();

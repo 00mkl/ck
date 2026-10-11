@@ -12,21 +12,21 @@ expression: snapshot(&mut a)
       /               search           filter the list; search a thread     Everywhere
       R               reload           reload                               Everywhere
       o               browser          open in the browser                  Everywhere
-      :               goto             go to a URL or site/board/thread     Everywhere
+      :               goto             a command (:tabnew, :export, ...) o… Everywhere
       ]               next_tab         next tab                             Everywhere
       [               prev_tab         previous tab                         Everywhere
       .               menu             everything you can do with what's s… Everywhere, Gallery…
       f               hints            label what's on screen; type a labe… Everywhere
       W               watched          the watched threads                  Everywhere
       ctrl-w          close_tab        close the tab                        Everywhere
-      . u             jump_back        back to the thread you left          Everywhere
+      ctrl-o          jump_back        back where you jumped from: the pos… Everywhere
       . ctrl-r        jump_forward     forward again, after going back      Everywhere
+      ctrl-^          alternate        the thread you read before this one… Everywhere
 
     Lists
       *               favorite         favorite board: on / off             Lists, Catalog
       . B             board_images     images on this board: on / off       Lists, Catalog, Thr…
       . a             add_site         add a site from a link to any page … Lists
-      . U             update_boards    read a vichan site's board list aga… Lists
 
     Changed keys are saved in [keys]; navigation keys are fixed. Without a key: on a letter in
     its menu (. h).

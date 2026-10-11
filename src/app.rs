@@ -39,6 +39,7 @@ macro_rules! take_popup {
     };
 }
 
+mod command;
 mod filters;
 mod focus;
 mod footer;
@@ -56,6 +57,7 @@ pub use goto::start_error;
 pub use loading::Whole;
 mod home;
 mod links;
+mod marks;
 mod list;
 pub use list::FilteredList;
 mod posting;
@@ -325,6 +327,9 @@ enum Msg {
     Wake,
 }
 
+/// How long a prefix (`g`, `z`, `m`, `'`) waits before what can follow it shows.
+pub const NEXT_KEYS_AFTER: Duration = Duration::from_millis(500);
+
 /// Keys typed toward a command, vim's way, waiting for the rest of it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pending {
@@ -333,19 +338,23 @@ pub enum Pending {
     /// `g` or `z`, waiting for its second key (`gg`, `zz`).
     G,
     Z,
-    /// `10g` went to the tenth post at once: a `g` next is vim's `10gg`, and does nothing
-    /// more. Not shown.
-    CountedG,
+    /// `3g`, waiting for `g` (the third post) or `t` (the third tab).
+    CountG(NonZeroUsize),
+    /// `m` and `'`, waiting for the mark's letter.
+    Mark,
+    GoToMark,
 }
 
 impl Pending {
     /// As the footer shows it: "10", "g", "z".
-    pub fn shown(self) -> Option<String> {
+    pub fn shown(self) -> String {
         match self {
-            Pending::Count(n) => Some(n.to_string()),
-            Pending::G => Some("g".into()),
-            Pending::Z => Some("z".into()),
-            Pending::CountedG => None,
+            Pending::Count(n) => n.to_string(),
+            Pending::G => "g".into(),
+            Pending::Z => "z".into(),
+            Pending::CountG(n) => format!("{n}g"),
+            Pending::Mark => "m".into(),
+            Pending::GoToMark => "'".into(),
         }
     }
 }
@@ -495,6 +504,10 @@ pub struct App {
     pub typing: Option<Typing>,
     /// Keys typed toward a command, as vim takes them (shown in the footer while they wait).
     pub pending: Option<Pending>,
+    /// When `pending` last changed: a prefix waiting a moment shows what can follow it.
+    pub pending_since: Option<Instant>,
+    /// Going up and down the lines typed before (after `:` or `/`): where, and what was typed.
+    recalling: Option<(usize, String)>,
     pub keys: KeyMap,
     /// The last text copied to the clipboard, and the last URL opened.
     pub copied: Option<String>,
@@ -648,6 +661,8 @@ impl App {
             session_saved: Instant::now(),
             typing: None,
             pending: None,
+            pending_since: None,
+            recalling: None,
             keys: cfg.keys,
             copied: None,
             opened: None,
@@ -940,6 +955,10 @@ impl App {
                 wake = wake.min(t.saturating_duration_since(now));
             }
         };
+        // A prefix waiting: what can follow it shows after a moment.
+        if let Some(since) = self.pending_since.filter(|_| self.pending.is_some_and(|p| !matches!(p, Pending::Count(_)))) {
+            after(since, NEXT_KEYS_AFTER);
+        }
         if let Some(since) = self.notes_since {
             after(since, Duration::from_secs(3));
         }
@@ -1469,14 +1488,14 @@ impl App {
         links.iter().filter(leaves).find(|l| l.post.is_some()).or_else(|| links.iter().find(leaves)).cloned()
     }
 
-    /// Remember the thread shown and its selected post, for `u` to come back to.
+    /// Remember the thread shown and its selected post, for ctrl-o to come back to.
     fn leave_trail(&mut self) {
         if let Some(here) = self.trail_here() {
             self.tab.remember(here);
         }
     }
 
-    /// The thread shown and its selected post, as `u` comes back to it.
+    /// The thread shown and its selected post, as ctrl-o comes back to it.
     fn trail_here(&self) -> Option<Trail> {
         self.tab.here()
     }
@@ -1507,7 +1526,7 @@ impl App {
         true
     }
 
-    /// Go where a quote link leads: a thread (remembered for `u`), a board, or a post whose
+    /// Go where a quote link leads: a thread (remembered for ctrl-o), a board, or a post whose
     /// thread the engine is asked for.
     fn follow(&mut self, link: &Link) {
         let Some(here) = &self.tab.board else { return };
@@ -1543,7 +1562,7 @@ impl App {
 
     /// The engine said which thread on `site`'s `board` the quoted `post` is in: open it
     /// there (only now moving to that site), leaving `trail`, where the lookup was asked
-    /// from, for `u`.
+    /// from, for ctrl-o.
     fn thread_found(&mut self, site: usize, board: Board, post: u64, trail: Option<Trail>, res: Result<Option<u64>>) {
         match res {
             Ok(Some(no)) => {

@@ -137,7 +137,7 @@ pub struct ThreadView {
     pub backlinks: Vec<Vec<u64>>,
     pub selected: usize,
     pub scroll: usize,
-    /// Where `u` goes back to, by post number, and where `ctrl-r` goes forward to again.
+    /// Where ctrl-o goes back to, by post number, and where `ctrl-r` goes forward to again.
     pub(super) jumps: Vec<u64>,
     pub(super) ahead: Vec<u64>,
     /// Rendered layout, rebuilt by the UI when the width changes, from cached post lines.
@@ -883,6 +883,24 @@ impl ThreadView {
         self.reveal = None;
     }
 
+    /// `H`, `M`, `L`: the entry at the screen's top (`n`th from it), middle or bottom (`n`th
+    /// from it), of those whose first line is on screen; the one filling it if none's is.
+    pub(super) fn entry_on_screen(&self, at: Place, n: usize) -> Option<usize> {
+        let l = self.layout.as_ref()?;
+        let (top, bottom) = (self.scroll, self.scroll + self.viewport.max(1));
+        let first = l.starts.partition_point(|&s| s < top);
+        let end = l.starts.partition_point(|&s| s < bottom).min(self.entries.len());
+        if first >= end {
+            return Some(l.entry_at(top));
+        }
+        let skip = n.saturating_sub(1);
+        Some(match at {
+            Place::Top => (first + skip).min(end - 1),
+            Place::Bottom => (end - 1).saturating_sub(skip).max(first),
+            Place::Middle => l.entry_at(top + self.viewport / 2).clamp(first, end - 1),
+        })
+    }
+
     /// Scroll by lines, then select the entry at the top of the view.
     pub(super) fn scroll_lines(&mut self, delta: isize) {
         let Some(l) = &self.layout else { return };
@@ -902,19 +920,19 @@ impl ThreadView {
         self.index.get(&no).copied().map(|i| self.jump(i)).is_some()
     }
 
-    /// Select post `i`, with the selected one to come back to (`u`).
+    /// Select post `i`, with the selected one to come back to (ctrl-o).
     pub(super) fn jump(&mut self, i: usize) {
         self.leave_mark();
         self.select(i);
     }
 
-    /// The selected post, to come back to (`u`) from a jump about to be made.
+    /// The selected post, to come back to (ctrl-o) from a jump about to be made.
     pub(super) fn leave_mark(&mut self) {
         self.jumps.extend(self.current().map(|p| p.no));
         self.ahead.clear();
     }
 
-    /// `u`: back to the last post jumped from that's still here. False if there's none.
+    /// ctrl-o: back to the last post jumped from that's still here. False if there's none.
     pub(super) fn jump_back(&mut self) -> bool {
         self.retrace(true)
     }

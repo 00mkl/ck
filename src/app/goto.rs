@@ -83,7 +83,7 @@ impl App {
             }
             (None, Some(post)) => {
                 // A post without its thread (FoolFuuka's /post/ links): ask the engine of the
-                // post's site. The tab moves there only once it's found; `u` comes back here.
+                // post's site. The tab moves there only once it's found; ctrl-o comes back here.
                 let Some(backend) = self.sites.get(target.site).map(|s| s.backend.clone()) else { return };
                 // The settings close, as they do wherever else this goes.
                 self.tab.close_settings();
@@ -101,18 +101,31 @@ impl App {
         }
     }
 
+    /// A key after `:`: a command (`:tabnew`) or a place to go, with the lines typed before
+    /// on up and down.
     pub fn on_goto_key(&mut self, key: KeyEvent) {
         let Some(super::Typing::Goto(text)) = &mut self.typing else { return };
         match key.code {
+            KeyCode::Up | KeyCode::Down => {
+                if let Some(line) = super::command::recall(&self.store.recall.commands, &mut self.recalling, text, key.code == KeyCode::Up) {
+                    *text = line;
+                }
+                return;
+            }
             KeyCode::Esc => self.typing = None,
             KeyCode::Enter => {
                 let input = std::mem::take(text);
                 self.typing = None;
-                self.goto_str(&input);
+                super::command::keep(&mut self.store.recall.commands, &input);
+                self.save();
+                if !self.run_command(&input) {
+                    self.goto_str(&input);
+                }
             }
             KeyCode::Tab => self.complete_goto(),
             _ => super::edit_text(text, key),
         }
+        self.recalling = None;
     }
 
     /// Text pasted into the terminal: into the input being typed, or a URL to go to.
@@ -145,9 +158,14 @@ impl App {
         }
     }
 
-    /// Tab in the `:` input: complete a site name, or a board of the site typed so far.
+    /// Tab in the `:` input: complete a command, a theme after `:colorscheme`, a site name,
+    /// or a board of the site typed so far.
     fn complete_goto(&mut self) {
         let Some(text) = self.goto_text().map(String::from) else { return };
+        let commands = self.command_candidates(&text);
+        if let Some((prefix, names)) = commands.clone().filter(|_| text.contains(' ')) {
+            return self.complete_from(&prefix, text.strip_prefix(prefix.as_str()).unwrap_or_default(), &names, false);
+        }
         let (prefix, partial, site) = match text.rsplit_once('/') {
             Some((head, tail)) => {
                 let name = head.trim_start_matches('/');
@@ -161,15 +179,28 @@ impl App {
             Some(site) => boards(site),
             None => {
                 let lists = ["saved", "watched", "history"].map(String::from);
-                self.sites.iter().map(|s| s.cfg.name.clone()).chain(boards(self.tab.site)).chain(lists).collect()
+                let commands = commands.map(|(_, names)| names).unwrap_or_default();
+                self.sites.iter().map(|s| s.cfg.name.clone()).chain(boards(self.tab.site)).chain(lists).chain(commands).collect()
             }
         };
+        self.complete_from(&prefix, &partial, &candidates, site.is_none());
+    }
+
+    /// Complete `partial` (after `prefix`) from `candidates`: the one that starts so, or as
+    /// much as they all have in common (and the first of them, in the footer). A site's
+    /// name gets a `/` after it, with `sites`.
+    fn complete_from(&mut self, prefix: &str, partial: &str, candidates: &[String], sites: bool) {
         let lower = partial.to_lowercase();
-        let matches: Vec<&String> = candidates.iter().filter(|c| c.to_lowercase().starts_with(&lower)).collect();
+        let mut seen = std::collections::HashSet::new();
+        let mut matches: Vec<&String> = candidates.iter().filter(|c| c.to_lowercase().starts_with(&lower) && seen.insert(c.as_str())).collect();
+        // A site named just so (`b`, among `board_images`, `browser`, ...) is the one.
+        if sites && let Some(site) = matches.iter().copied().find(|m| m.eq_ignore_ascii_case(partial) && self.site_index(m).is_some()) {
+            matches = vec![site];
+        }
         match matches.as_slice() {
             [] => self.info(format!("Nothing starts with \"{partial}\"")),
             [one] => {
-                let slash = if site.is_none() && self.site_index(one).is_some() { "/" } else { "" };
+                let slash = if sites && self.site_index(one).is_some() { "/" } else { "" };
                 self.typing = Some(super::Typing::Goto(format!("{prefix}{one}{slash}")));
             }
             many @ [first, rest @ ..] => {

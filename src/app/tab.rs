@@ -140,8 +140,8 @@ pub struct Tab {
     pub popup: Option<TabPopup>,
     /// The thread's files as a grid (`V`), over the thread.
     pub gallery: Option<Gallery>,
-    /// The jump list: threads left (and the post selected in each), newest last, for `u`;
-    /// and those `u` went back from, for `ctrl-r` to go forward to again.
+    /// The jump list: threads left (and the post selected in each), newest last, for ctrl-o;
+    /// and those ctrl-o went back from, for `ctrl-r` to go forward to again.
     pub trail: Vec<Trail>,
     pub ahead: Vec<Trail>,
     /// The open thread was opened from the catalog (not by following a link).
