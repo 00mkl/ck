@@ -304,7 +304,8 @@ impl App {
             Some(Part::Link(Target::Url(u))) => crate::ui::truncate(u, 50),
             Some(Part::Link(Target::Quote(_))) | Some(Part::Replies) | Some(Part::Poster) | None => format!("No.{}", p.no),
         };
-        if let Some(label) = self.enter_label() {
+        // What enter does, unless it's viewing the post's images: the v row says that.
+        if let Some(label) = self.enter_label().filter(|_| focus.is_some() || p.files.is_empty() || !self.images.enabled()) {
             items.push(MenuItem::Enter(label));
         }
         match focus {

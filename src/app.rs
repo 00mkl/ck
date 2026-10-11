@@ -711,15 +711,15 @@ impl App {
     }
 
     pub fn visible_watched(&self) -> Vec<usize> {
-        filtered(&self.watched_list.filter, self.store.all_watched(), |w| format!("{} {} {} {}", w.key.site, w.key.board, w.key.no, w.subject))
+        filtered(&self.watched_list.filter, self.store.all_watched(), |w| format!("{} /{}/ {} {}", w.key.site, w.key.board, w.key.no, w.subject))
     }
 
     pub fn visible_saved(&self) -> Vec<usize> {
-        filtered(&self.saved_list.filter, &self.store.saved, |s| format!("{} {} {} {}", s.key.site, s.key.board, s.key.no, s.subject))
+        filtered(&self.saved_list.filter, &self.store.saved, |s| format!("{} /{}/ {} {}", s.key.site, s.key.board, s.key.no, s.subject))
     }
 
     pub fn visible_history(&self) -> Vec<usize> {
-        filtered(&self.history_list.filter, &self.store.history, |h| format!("{} {} {} {}", h.key.site, h.key.board, h.key.no, h.subject))
+        filtered(&self.history_list.filter, &self.store.history, |h| format!("{} /{}/ {} {}", h.key.site, h.key.board, h.key.no, h.subject))
     }
 
     pub fn boards(&self) -> &[Board] {
@@ -727,7 +727,8 @@ impl App {
     }
 
     pub fn visible_boards(&self) -> Vec<usize> {
-        filtered(&self.tab.board_list.filter, self.boards(), |b| format!("{} {}", b.uri, b.title))
+        // As listed, "/b/ Random": "/b", "/b/" and "b" all find it.
+        filtered(&self.tab.board_list.filter, self.boards(), |b| format!("/{}/ {}", b.uri, b.title))
     }
 
     pub fn visible_catalog(&self) -> Vec<usize> {

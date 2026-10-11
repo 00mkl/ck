@@ -71,6 +71,14 @@ impl App {
                 self.error(e.context("Couldn't save the board list"));
             }
         }
+        // A board opened before its site's list was known (`:` to a board) gets its title.
+        for tab in std::iter::once(&mut self.tab).chain(self.tabs.iter_mut()).filter(|t| t.site == site) {
+            if let Some(open) = tab.board.as_mut().filter(|b| b.title.is_empty())
+                && let Some(known) = boards.iter().find(|b| b.uri == open.uri)
+            {
+                *open = known.clone();
+            }
+        }
         if let Some(s) = self.sites.get_mut(site) {
             s.boards = Some(boards);
         }
