@@ -33,6 +33,30 @@ impl Field {
     const ALL: [Field; 6] = [Field::Name, Field::Options, Field::Subject, Field::Comment, Field::File, Field::Spoiler];
 }
 
+/// What tab completes a file's path to, as a shell would: the path with as much of the
+/// names in its folder that start as it ends as they share (a folder's with a `/`), and
+/// those names when there are several. None: no name starts so.
+#[allow(clippy::disallowed_methods)] // your own folders, not ck's (folders listed too)
+pub fn complete_path(typed: &str) -> Option<(String, Vec<String>)> {
+    let (dir, start) = typed.rfind('/').map_or(("", typed), |i| typed.split_at(i + 1));
+    let folder = if dir.is_empty() { std::path::PathBuf::from(".") } else { crate::config::expand_home(dir) };
+    // Hidden names only when asked for.
+    let mut names: Vec<String> = std::fs::read_dir(folder)
+        .ok()?
+        .filter_map(|e| {
+            let e = e.ok()?;
+            let name = e.file_name().into_string().ok()?;
+            let slash = if e.path().is_dir() { "/" } else { "" };
+            (name.starts_with(start) && (start.starts_with('.') || !name.starts_with('.'))).then(|| format!("{name}{slash}"))
+        })
+        .collect();
+    names.sort();
+    let first = names.first()?;
+    let common: String = names.iter().skip(1).fold(first.clone(), |acc, n| acc.chars().zip(n.chars()).take_while(|(a, b)| a == b).map(|(a, _)| a).collect());
+    let choices = if names.len() > 1 { names } else { Vec::new() };
+    Some((format!("{dir}{common}"), choices))
+}
+
 /// Where the box is in posting.
 pub enum Stage {
     Writing,
@@ -99,6 +123,9 @@ pub struct Compose {
     answer: Option<Sender<Option<String>>>,
     /// The site's longest comment, where ck knows it.
     pub limit: Option<usize>,
+    /// The names in the file's folder that tab could complete it to, listed after a tab
+    /// that couldn't decide between them; the next tab moves on.
+    pub file_choices: Vec<String>,
 }
 
 impl Compose {
@@ -127,6 +154,7 @@ impl Compose {
             attempt: 0,
             answer: None,
             limit,
+            file_choices: Vec::new(),
         }
     }
 
@@ -196,10 +224,35 @@ impl Compose {
         }
     }
 
+    /// Tab in the file's field: complete the path as a shell does. Whether it did anything
+    /// (else tab moves on, as in the other fields).
+    fn complete_file(&mut self) -> bool {
+        let typed = self.file.text().to_string();
+        let Some((done, choices)) = Some(typed.as_str()).filter(|t| !t.trim().is_empty()).and_then(complete_path) else { return false };
+        if done != typed {
+            self.file.set(&done);
+            self.file_choices = choices;
+            return true;
+        }
+        // Nothing more in common: the choices, once.
+        if !choices.is_empty() && self.file_choices.is_empty() {
+            self.file_choices = choices;
+            return true;
+        }
+        false
+    }
+
     /// A key while writing: to the field, or moving between them.
     fn on_writing_key(&mut self, key: KeyEvent) {
+        if key.code != KeyCode::Tab {
+            self.file_choices.clear();
+        }
         match key.code {
-            KeyCode::Tab => self.step_field(true),
+            KeyCode::Tab if self.field == Field::File && self.complete_file() => {}
+            KeyCode::Tab => {
+                self.file_choices.clear();
+                self.step_field(true);
+            }
             KeyCode::BackTab => self.step_field(false),
             KeyCode::Enter | KeyCode::Char(' ') if self.field == Field::Spoiler => self.spoiler = !self.spoiler,
             KeyCode::Down if self.field != Field::Comment => self.step_field(true),
@@ -305,15 +358,25 @@ impl App {
         crate::post::poster(&self.current_site().cfg).is_some() && self.tab.saved().is_none()
     }
 
-    /// `P`: the reply box for the thread (quoting the selected post), or for a new thread in
-    /// the catalog. A draft left there comes back.
-    pub(super) fn open_reply(&mut self, quoting: Quoting) {
-        let to = match self.tab.view() {
+    /// Where the reply box would post from here: the thread, or a new thread on the
+    /// catalog's board.
+    fn reply_to(&self) -> Option<Where> {
+        match self.tab.view() {
             View::Thread => self.tab.thread.as_ref().map(|t| Where { site: t.key().site.clone(), board: t.key().board.clone(), thread: t.key().no }),
             View::Catalog => self.tab.catalog.board().map(|b| Where { site: self.tab.catalog.site().to_string(), board: b.uri.clone(), thread: 0 }),
             _ => None,
-        };
-        let Some(to) = to else {
+        }
+    }
+
+    /// A draft left here (esc in the reply box) waits for the reply box.
+    pub(crate) fn draft_here(&self) -> bool {
+        self.reply_to().is_some_and(|to| self.drafts.contains_key(&to))
+    }
+
+    /// `P`: the reply box for the thread (quoting the selected post), or for a new thread in
+    /// the catalog. A draft left there comes back.
+    pub(super) fn open_reply(&mut self, quoting: Quoting) {
+        let Some(to) = self.reply_to() else {
             self.info("Open a thread to reply, or a catalog to start a thread");
             return;
         };

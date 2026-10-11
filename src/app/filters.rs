@@ -517,6 +517,13 @@ impl App {
             }
             KeyCode::Char('x') | KeyCode::Delete => {
                 if let Some((i, f)) = sel.and_then(|i| self.filter_cfgs.get(i).cloned().map(|f| (i, f))) {
+                    // Asked first, as removing a saved copy is: the second press counts while
+                    // the question still shows.
+                    let ask = format!("Press x again to remove the filter {}", f.label());
+                    if self.footer.get().is_none_or(|s| s.text != ask) {
+                        self.info(ask);
+                        return Some(SettingsPopup::Filters { list, counts });
+                    }
                     let saved = self.write_filters(FilterEdit::Remove(i, &f));
                     self.filter_cfgs.remove(i);
                     self.apply_filters();

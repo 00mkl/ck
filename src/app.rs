@@ -93,7 +93,7 @@ pub use sites::{Adding, MySites, origin as site_origin};
 pub use sites::BoardsUpdate;
 pub use tab::{Catalog, Opening, Tab, Then};
 pub use tabs::{MAX_TABS, Offline, TabPopup, ThreadCopy, Trail};
-pub use settings::{SettingsPopup, key_rows, rows as setting_rows, settings, tilde};
+pub use settings::{SettingsPopup, rows as setting_rows, settings, tilde};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -779,6 +779,11 @@ impl App {
             Sort::Replies => v.sort_by_key(|&(_, p)| std::cmp::Reverse(p.replies.unwrap_or(0))),
             Sort::Newest => v.sort_by_key(|&(_, p)| std::cmp::Reverse((p.time, p.no))),
             Sort::Oldest => v.sort_by_key(|&(_, p)| (p.time, p.no)),
+        }
+        // Filtered: the threads whose subject has it before those whose text only mentions
+        // it (`/lmg` puts /lmg/ above the generals that link to it), each in the sort's order.
+        if !needle.is_empty() {
+            v.sort_by_cached_key(|&(_, p)| !p.subject.as_ref().is_some_and(|s| s.to_lowercase().contains(&needle)));
         }
         // What a `top` filter highlights first, then (`watched_first`) the threads you watch,
         // each in the sort's order. The filters are rules written to come first whatever the

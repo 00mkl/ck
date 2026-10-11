@@ -119,7 +119,7 @@ ones for where you are.
 
 | key  | action |
 |------|--------|
-| `/`  | filter the list; in a thread, search it [`search`] |
+| `/`  | filter the list (in a catalog, threads whose subject has it first); in a thread, search it [`search`] |
 | `R` / `o` | reload / open the board or thread in a browser [`reload`, `browser`] |
 | `:`  | a command, or go to a URL or a site/board/thread, see [The command line](#the-command-line) [`goto`] |
 | `W`  | the watched threads (not in the image viewer or gallery); `esc` there goes back to where you pressed it [`watched`] |
@@ -364,7 +364,8 @@ were (from Settings: to the place under them). `ck URL` (or `ck 4chan/g`) starts
 
 ### Remapping keys
 
-`,` → Key bindings lists every command with its keys. `enter` and then a key rebinds the
+`,` → Key bindings lists every command with its keys (`/` filters them by key, name or what
+they do). `enter` and then a key rebinds the
 command, `a` adds another key, `u` takes its keys away, `x` resets it to the default. A key
 that another command already uses in the same view is refused. Changes apply at once and
 are saved in the config's `[keys]` section (only the keys you changed):
@@ -427,7 +428,7 @@ Settings › Filters lists every filter with what it catches in the open catalog
 `enter` edits one (pattern, label, action, the fields it looks at, sites and boards, OPs
 or replies only, and its options; a pattern that isn't a valid regex says why and isn't
 saved), `space` turns it off or on
-(`enabled = false`), `a` adds one and `x` removes one. Each change is written at once;
+(`enabled = false`), `a` adds one and `x` removes one (press it twice: it asks first). Each change is written at once;
 the rest of the config, comments included, stays as it was. A change that can't be written
 holds only until ck quits, and the footer says so as an error. No message replaces an
 error before it has been on screen (a second error joins it), and loading something new
@@ -674,12 +675,18 @@ unless it's the opening post; the menu's "reply quoting its text" quotes its tex
 (`>line`). `r` in a catalog starts a new thread on the board.
 
 The box has the post's fields: name, options (`sage`, …), the subject for a new thread,
-the comment, a file (a path; `~/` works) and whether to spoiler it. `tab` and shift-tab go
+the comment, a file (a path; `~/` works) and whether to spoiler it. In the file's field
+`tab` completes the path as a shell does (several names that fit are listed beside it; the
+next `tab` moves on), and beside the path is what's there: its size and kind, or "no such
+file", before you send. Elsewhere `tab` and shift-tab go
 between them (so do the arrows, outside the comment); in a field the keys are a shell's:
 ctrl-a / ctrl-e line start and end, ctrl-w a word back, ctrl-u / ctrl-k to the line's start
 or end, alt or ctrl with the arrows a word at a time. Pasted text keeps its lines in the
 comment. The counter counts its characters, against the site's limit where ck knows it
 (4chan's 2000).
+
+`esc` keeps what you wrote for later: the top bar then says "draft kept" (in the thread,
+or the catalog for a new thread), a thread's footer "reply (draft)", and `r` brings it back.
 
 ctrl-s sends it. ck asks the site for a captcha, if the board wants one, and shows it in the
 box:

@@ -13,7 +13,7 @@ use std::rc::Rc;
 use ratatui_image::Image;
 
 use crate::app::{
-    App, Clock, Hit, LineCache, LinkItem, Part, Pending, Popup, Quoted, Reveal, TabPopup, Spot, SettingsPopup, SiteRow, Sort, Status, ThreadLayout, ThreadCopy, ThreadView, Typing, View, key_rows,
+    App, Clock, Hit, LineCache, LinkItem, Part, Pending, Popup, Quoted, Reveal, TabPopup, Spot, SettingsPopup, SiteRow, Sort, Status, ThreadLayout, ThreadCopy, ThreadView, Typing, View,
     setting_rows, settings,
 };
 use std::collections::HashMap;
@@ -337,6 +337,9 @@ fn location(app: &App) -> (Vec<String>, Vec<Span<'static>>) {
             {
                 meta.push("images off".into());
             }
+            if app.draft_here() {
+                meta.push("draft kept".into());
+            }
             vec![site(), board().unwrap_or_default()]
         }
         View::Thread => {
@@ -372,6 +375,9 @@ fn location(app: &App) -> (Vec<String>, Vec<Span<'static>>) {
             }
             if th.is_some_and(|th| !app.images_on(&th.key().site, &th.key().board)) {
                 meta.push("images off".into());
+            }
+            if app.draft_here() {
+                meta.push("draft kept".into());
             }
             let uri = app.tab.board.as_ref().map(|b| format!("/{}/", b.uri)).unwrap_or_default();
             if let Some(c) = th.and_then(|th| th.conversation.as_ref()).filter(|_| app.tab.gallery.is_none()) {
@@ -664,7 +670,8 @@ fn footer_hints(app: &App) -> Vec<(String, &'static str)> {
                 hints.push((k(Action::Show), "show…"));
                 hints.push(("h".into(), "back"));
                 if app.can_post() {
-                    hints.push((k(Action::Reply), "reply"));
+                    // A draft kept with esc waits there.
+                    hints.push((k(Action::Reply), if app.draft_here() { "reply (draft)" } else { "reply" }));
                 }
                 hints.push((k(Action::Hints), "hints"));
                 hints.push((k(Action::Search), "search"));

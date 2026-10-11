@@ -3,7 +3,7 @@ source: src/ui_tests.rs
 expression: snapshot(&mut a)
 ---
  ck  Settings
-    Keys                                   enter rebind · a add · u unbind · x reset · esc close
+    Keys                        enter rebind · a add · u unbind · x reset · / filter · esc close
 
     Everywhere
   ▌   q               quit             quit                                 Everywhere

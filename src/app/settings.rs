@@ -252,7 +252,7 @@ pub const SECTIONS: &[(&str, &[Setting])] = &[
             0 => "defaults".into(),
             n => format!("{n} changed"),
         },
-        |a| open(a, SettingsPopup::Keys { list: ListState::default().with_selected(key_rows().iter().position(Result::is_ok)), capture: None }),
+        |a| open(a, SettingsPopup::Keys { list: ListState::default().with_selected(key_rows().iter().position(Result::is_ok)), capture: None, filter: String::new(), typing: false }),
     )]),
 ];
 
@@ -298,9 +298,9 @@ pub enum SettingsPopup {
     Colors { list: ListState, editing: Option<String> },
     /// Typing the download folder.
     Folder { value: String },
-    /// The key editor, over `key_rows()`; `capture` is waiting for a key to bind
-    /// (`Some(true)`: add it to the action's keys).
-    Keys { list: ListState, capture: Option<bool> },
+    /// The key editor, over `key_rows_matching(filter)`; `capture` is waiting for a key to
+    /// bind (`Some(true)`: add it to the action's keys); `typing`: the filter (`/`).
+    Keys { list: ListState, capture: Option<bool>, filter: String, typing: bool },
     /// The config's `[[site]]` tables.
     Sites(super::MySites),
     /// Boards with their own image setting.
@@ -333,6 +333,35 @@ pub fn key_rows() -> Vec<Result<Action, &'static str>> {
 }
 
 impl App {
+    /// `key_rows()` with only the commands `filter` finds (by key, name or what it does),
+    /// under their groups' titles.
+    pub fn key_rows_matching(&self, filter: &str) -> Vec<Result<Action, &'static str>> {
+        let needle = filter.to_lowercase();
+        if needle.is_empty() {
+            return key_rows();
+        }
+        let found = |a: Action| format!("{} {} {}", self.keys.label(a), a.name(), a.what()).to_lowercase().contains(&needle);
+        let mut out: Vec<Result<Action, &'static str>> = Vec::new();
+        let mut title = None;
+        for row in key_rows() {
+            match row {
+                Err("") => {}
+                Err(t) => title = Some(t),
+                Ok(a) if found(a) => {
+                    if let Some(t) = title.take() {
+                        if !out.is_empty() {
+                            out.push(Err(""));
+                        }
+                        out.push(Err(t));
+                    }
+                    out.push(Ok(a));
+                }
+                Ok(_) => {}
+            }
+        }
+        out
+    }
+
     /// Enter on a setting.
     pub fn activate_setting(&mut self) {
         if let Some(super::RowKey::Setting(i)) = self.selected_key(View::Settings)
@@ -410,7 +439,7 @@ impl App {
         let next = match popup {
             SettingsPopup::Themes { list, names, before } => self.on_themes_key(key, list, names, before),
             SettingsPopup::Colors { list, editing } => self.on_colors_key(key, list, editing),
-            SettingsPopup::Keys { list, capture } => self.on_keys_key(key, list, capture),
+            SettingsPopup::Keys { list, capture, filter, typing } => self.on_keys_key(key, list, capture, filter, typing),
             SettingsPopup::Filters { list, counts } => self.on_filter_list_key(key, list, counts),
             SettingsPopup::Sites(m) => self.on_my_sites_key(key, m).map(SettingsPopup::Sites),
             SettingsPopup::HiddenWords { list, typing } => self.on_hidden_words_key(key, list, typing),
@@ -489,29 +518,52 @@ impl App {
         }
     }
 
-    fn on_keys_key(&mut self, key: KeyEvent, mut list: ListState, capture: Option<bool>) -> Option<SettingsPopup> {
+    fn on_keys_key(&mut self, key: KeyEvent, mut list: ListState, capture: Option<bool>, mut filter: String, typing: bool) -> Option<SettingsPopup> {
+        let action = list.selected().and_then(|r| self.key_rows_matching(&filter).get(r).copied()).and_then(Result::ok);
         if let Some(add) = capture {
-            if key.code != KeyCode::Esc {
+            if key.code != KeyCode::Esc
+                && let Some(action) = action
+            {
                 let key = Key::from(key);
-                self.set_keys(&list, |now| Some(now.iter().copied().filter(|&k| add && k != key).chain([key]).collect()));
+                self.set_keys(action, |now| Some(now.iter().copied().filter(|&k| add && k != key).chain([key]).collect()));
             }
-            return Some(SettingsPopup::Keys { list, capture: None });
+            return Some(SettingsPopup::Keys { list, capture: None, filter, typing });
         }
+        // The first command the filter leaves, selected.
+        let first = |app: &Self, filter: &str| ListState::default().with_selected(app.key_rows_matching(filter).iter().position(Result::is_ok));
+        if typing {
+            return match key.code {
+                KeyCode::Esc => Some(SettingsPopup::Keys { list: first(self, ""), capture: None, filter: String::new(), typing: false }),
+                KeyCode::Enter | KeyCode::Down | KeyCode::Up => Some(SettingsPopup::Keys { list, capture: None, filter, typing: false }),
+                _ => {
+                    edit_text(&mut filter, key);
+                    Some(SettingsPopup::Keys { list: first(self, &filter), capture: None, filter, typing: true })
+                }
+            };
+        }
+        let keep = |list, filter| Some(SettingsPopup::Keys { list, capture: None, filter, typing: false });
         match key.code {
+            // Esc takes the filter away first.
+            KeyCode::Esc if !filter.is_empty() => keep(first(self, ""), String::new()),
             KeyCode::Esc | KeyCode::Char('q' | 'h') | KeyCode::Left => None,
-            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right => Some(SettingsPopup::Keys { list, capture: Some(false) }),
-            KeyCode::Char('a') => Some(SettingsPopup::Keys { list, capture: Some(true) }),
+            KeyCode::Char('/') => Some(SettingsPopup::Keys { list, capture: None, filter, typing: true }),
+            KeyCode::Enter | KeyCode::Char('l') | KeyCode::Right if action.is_some() => Some(SettingsPopup::Keys { list, capture: Some(false), filter, typing: false }),
+            KeyCode::Char('a') if action.is_some() => Some(SettingsPopup::Keys { list, capture: Some(true), filter, typing: false }),
             // No key: the action is left to the menu.
             KeyCode::Char('u') => {
-                self.set_keys(&list, |_| Some(Vec::new()));
-                Some(SettingsPopup::Keys { list, capture: None })
+                if let Some(action) = action {
+                    self.set_keys(action, |_| Some(Vec::new()));
+                }
+                keep(list, filter)
             }
             KeyCode::Char('x') | KeyCode::Delete => {
-                self.set_keys(&list, |_| None);
-                Some(SettingsPopup::Keys { list, capture: None })
+                if let Some(action) = action {
+                    self.set_keys(action, |_| None);
+                }
+                keep(list, filter)
             }
             code => {
-                let rows = key_rows();
+                let rows = self.key_rows_matching(&filter);
                 let actions: Vec<usize> = rows.iter().enumerate().filter(|(_, r)| r.is_ok()).map(|(i, _)| i).collect();
                 let cur = actions.iter().position(|&r| Some(r) == list.selected()).unwrap_or(0);
                 let to = match code {
@@ -520,7 +572,7 @@ impl App {
                     _ => list_move(code, cur, actions.len()).unwrap_or(cur),
                 };
                 list.select(actions.get(to).copied());
-                Some(SettingsPopup::Keys { list, capture: None })
+                keep(list, filter)
             }
         }
     }
@@ -598,10 +650,9 @@ impl App {
         }
     }
 
-    /// Change the keys of the action selected in the key editor to what `keys` makes of
-    /// them (`None`: the default; none: in the menu only), unless that would clash.
-    fn set_keys(&mut self, list: &ListState, keys: impl FnOnce(&[Key]) -> Option<Vec<Key>>) {
-        let Some(action) = list.selected().and_then(|r| key_rows().get(r).copied()).and_then(Result::ok) else { return };
+    /// Change `action`'s keys to what `keys` makes of them (`None`: the default; none: in
+    /// the menu only), unless that would clash.
+    fn set_keys(&mut self, action: Action, keys: impl FnOnce(&[Key]) -> Option<Vec<Key>>) {
         match self.keys.with(action, keys(self.keys.keys(action))) {
             Ok(map) => {
                 self.keys = map;
