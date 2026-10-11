@@ -1365,7 +1365,7 @@ fn gallery_of_the_threads_files() {
 #[test]
 fn archive_search_and_back() {
     let mut app = app_with(
-        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchive = \"arch\"\n\
+        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchives = [\"arch\"]\n\
          [[site]]\nname = \"arch\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"\nboards = [\"g\"]",
     );
     app.tab.board = Some(Board { uri: "g".into(), title: String::new(), nsfw: None });
@@ -1400,7 +1400,7 @@ fn archive_search_and_back() {
     assert_eq!((app.tab.view(), app.tab.site, app.tab.search.is_none()), (View::Catalog, 0, true));
     // Sites without an archive say so.
     drawn(&mut app);
-    app.sites[0].cfg.archive = None;
+    app.sites[0].cfg.archives.clear();
     app.act(Action::ArchiveSearch);
     assert!(app.typing.is_none() && app.footer.get().unwrap().text.contains("no archive"));
 }
@@ -1408,7 +1408,7 @@ fn archive_search_and_back() {
 #[test]
 fn search_results_leave_out_hidden_posts() {
     let mut app = app_with(
-        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchive = \"arch\"\n\
+        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchives = [\"arch\"]\n\
          [[site]]\nname = \"arch\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"\nboards = [\"g\"]",
     );
     app.tab.board = Some(Board { uri: "g".into(), title: String::new(), nsfw: None });
@@ -4235,7 +4235,7 @@ fn unwatching_a_thread_forgets_which_posts_are_yours() {
 #[test]
 fn a_tab_searching_the_archive_keeps_its_catalog_and_thread_hidden() {
     let mut app = app_with(
-        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchive = \"arch\"\n\
+        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchives = [\"arch\"]\n\
          [[site]]\nname = \"arch\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"\nboards = [\"g\"]",
     );
     app.tab.board = Some(Board { uri: "g".into(), title: String::new(), nsfw: None });
@@ -4793,7 +4793,7 @@ fn a_site_that_cant_be_asked_is_said_in_plain_words() {
 fn an_archive_search_that_fails_is_said_in_plain_words() {
     let plain = crate::http::plain(&unreachable_request());
     let mut app = app_with(
-        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchive = \"arch\"\n\
+        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchives = [\"arch\"]\n\
          [[site]]\nname = \"arch\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"\nboards = [\"g\"]",
     );
     app.tab.board = Some(Board { uri: "g".into(), title: String::new(), nsfw: None });
@@ -5117,7 +5117,7 @@ fn a_new_boards_first_pages_show_none_of_the_last_boards_new_threads() {
 #[test]
 fn a_session_saved_during_an_archive_search_is_the_board_searched_from() {
     let mut app = app_with(
-        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchive = \"arch\"\n\
+        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"g\"]\narchives = [\"arch\"]\n\
          [[site]]\nname = \"arch\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"\nboards = [\"g\"]",
     );
     app.tab.board = Some(Board { uri: "g".into(), title: String::new(), nsfw: None });
@@ -5786,4 +5786,67 @@ fn a_waiting_prefix_shows_what_can_follow() {
     assert!(rows.iter().any(|(k, what)| k == "t" && what.contains("next tab")), "{rows:?}");
     press(&mut app, "g");
     assert!(app.next_keys().is_none());
+}
+
+/// An archive search where no archive is known to keep the board asks them in turn: none
+/// that does is said; the one that does shows its results, from that board only.
+#[test]
+fn an_archive_search_uses_an_archive_that_keeps_the_board() {
+    let mut app = app_with(
+        "[[site]]\nname = \"chan\"\nkind = \"vichan\"\nurl = \"http://127.0.0.1:3\"\nboards = [\"tv\"]\narchives = [\"one\", \"two\"]\n\
+         [[site]]\nname = \"one\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"\n\
+         [[site]]\nname = \"two\"\nkind = \"foolfuuka\"\nurl = \"http://localhost:3\"",
+    );
+    let board = |uri: &str| Board { uri: uri.into(), title: String::new(), nsfw: None };
+    app.tab.board = Some(board("tv"));
+    app.tab.navigate(View::Catalog);
+    let back = (0, Some(board("tv")), View::Catalog);
+    let names = ["one".to_string(), "two".to_string()];
+    app.archive_searched("tv".into(), "x".into(), back.clone(), &names, Ok((vec![(1, vec![board("g")]), (2, vec![board("a")])], None)));
+    assert_eq!(app.tab.view(), View::Catalog);
+    assert!(app.footer.get().unwrap().text.contains("None of the archives (one, two) keeps /tv/"));
+    // What it learned is kept: the next search asks no one.
+    assert_eq!(app.archive_for(0, "g"), Some(1));
+    assert_eq!(app.archive_for(0, "tv"), None);
+    // Found on the second: its results, those on other boards left out.
+    let mut page = crate::backend::foolfuuka::parse_search(&crate::backend::fixture("foolfuuka_search.json")).unwrap();
+    page.hits[0].1.board = Some("tv".into());
+    app.archive_searched("tv".into(), "x".into(), back, &names, Ok((Vec::new(), Some((2, page)))));
+    assert_eq!((app.tab.view(), app.tab.site, app.tab.search.as_ref().unwrap().hits.len()), (View::Search, 2, 1));
+}
+
+/// A quote of a post in another thread is drawn with an arrow; `p` fetches that thread and
+/// shows the post, and enter goes there.
+#[test]
+fn quotes_of_other_threads_are_marked_and_previewed() {
+    let mut app = thread_app();
+    app.set_thread(vec![post(1, 60, None, "op"), post(2, 30, None, r#"<a href="/x/thread/500#p501" class="quotelink">&gt;&gt;501</a><br><a href="\#p1" class="quotelink">&gt;&gt;1</a> hi"#)]);
+    let screen = format!("{:?}", draw_at(&mut app, 100, 30));
+    assert!(screen.contains(">>501 →") && !screen.contains(">>1 →"), "{screen}");
+    app.tab.thread.as_mut().unwrap().select(1);
+    app.on_key(KeyEvent::from(KeyCode::Char('p')));
+    let quoted = |app: &App| match &app.tab.popup {
+        Some(TabPopup::Preview(p)) => p.elsewhere.iter().map(|(l, q)| (l.post, matches!(q, Quoted::Found(_)))).collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+    assert_eq!(quoted(&app), [(Some(501), false)]);
+    app.quoted_fetched("x", 500, &Ok(vec![post(500, 90, None, "the op"), post(501, 80, None, "quoted")]));
+    assert_eq!(quoted(&app), [(Some(501), true)]);
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert_eq!(app.tab.view(), View::Thread);
+}
+
+/// A thread is at most `thread_width` columns wide, centered.
+#[test]
+fn a_thread_on_a_wide_screen_keeps_to_its_width() {
+    let mut app = thread_app_of(5);
+    draw_at(&mut app, 200, 30);
+    let area = |app: &App| match app.drawn().and_then(|d| d.body) {
+        Some(Hit::Thread { area, .. }) => area,
+        _ => Rect::default(),
+    };
+    assert_eq!((area(&app).width, area(&app).x > 20), (140, true));
+    app.thread_width = 0;
+    draw_at(&mut app, 200, 30);
+    assert!(area(&app).width > 190);
 }

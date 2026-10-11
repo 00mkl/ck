@@ -433,7 +433,7 @@ impl App {
         if let Some(row) = self.board_images_row() {
             items.push(MenuItem::Act(A::BoardImages, row));
         }
-        if self.archive_site().is_some() {
+        if !self.archives_of(self.tab.site).is_empty() {
             items.push(act(A::ArchiveSearch, "search the board's archive"));
         }
         items.push(act(A::Search, "filter the threads"));

@@ -16,6 +16,11 @@ pub(super) fn draw_thread(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     };
     let th = theme();
+    // At most `thread_width` wide, centered: long lines are hard to read.
+    let area = match app.thread_width {
+        w if w > 0 && area.width > w => Rect { x: area.x + (area.width - w) / 2, width: w, ..area },
+        _ => area,
+    };
     // A taller or shorter screen: the selection stays in view.
     if t.viewport != area.height as usize {
         t.viewport = area.height as usize;
@@ -551,12 +556,15 @@ fn post_lines(ctx: &PostCtx, width: usize) -> (Vec<Line<'static>>, Vec<Spot>) {
                 s.content = markup::masked(&s.content).into();
             }
         }
-        // Mark quotes of the OP like 4chan does. Quote links are always their own span.
+        // Mark quotes of the OP like 4chan does, and of posts in another thread with an
+        // arrow. Quote links are always their own span.
         for s in &mut line.spans {
             if markup::is_quote_link(s.style) {
                 let target = markup::quote_target(&s.content);
                 if target == Some(ctx.op_no) {
                     s.content.to_mut().push_str(" (OP)");
+                } else if target.is_some_and(|n| p.links.iter().any(|l| l.post == Some(n) && l.thread.is_some_and(|th| th != ctx.op_no))) {
+                    s.content.to_mut().push_str(" →");
                 }
                 if target.is_some_and(|n| ctx.mine.contains(&n)) {
                     s.content.to_mut().push_str(" (You)");

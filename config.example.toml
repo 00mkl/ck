@@ -22,7 +22,8 @@
 #
 # vichan sites may set `post_url` when posts go to another host (8kun's sys.8kun.top).
 #
-# `archive` names another site (a FoolFuuka archive) to offer when a thread 404s.
+# `archives` names other sites (FoolFuuka archives) that keep its old threads, in order: archive
+# search (. A) and a thread that 404s use the first that has the board.
 #
 # `boards` entries are either a bare URI ("g") or { uri = "g", title = "Technology" }.
 #
@@ -102,6 +103,10 @@ page_cache_mb = 100
 # 0 lets it reach the edge. Also in Settings.
 scroll_margin = 0.3
 
+# A thread is at most this many columns wide (posts with their thumbnails), centered on a
+# wider screen: long lines are hard to read. 0 uses the whole width. Also in Settings.
+thread_width = 140
+
 # Reading the last post of a thread, posts a refresh brings come into view: the first new one
 # is selected, as `j` would. Elsewhere in the thread nothing moves, and the top bar says how
 # many new posts are below. Also in Settings.
@@ -136,7 +141,7 @@ watched_first = false
 [[site]]
 name = "4chan"
 kind = "4chan"
-archive = "desuarchive"
+archives = ["desuarchive", "palanq", "b4k"]
 
 [[site]]
 name = "lainchan"

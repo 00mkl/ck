@@ -288,10 +288,19 @@ pub enum Typing {
 pub struct Preview {
     /// Numbers of the quoted posts in this thread (not indices: a refresh can drop posts).
     pub posts: Vec<u64>,
-    /// Quoted post numbers that aren't in this thread.
-    pub elsewhere: Vec<u64>,
+    /// Quoted posts that aren't in this thread, each fetched from its own (when the quote
+    /// says which).
+    pub elsewhere: Vec<(Link, Quoted)>,
     /// How far it's scrolled (as last drawn).
     pub scroll: ListState,
+}
+
+/// A quoted post from another thread, as the preview has it.
+pub enum Quoted {
+    Loading,
+    Found(Box<Post>),
+    /// Why it isn't shown (its thread unknown, gone, or not answering).
+    Missing(String),
 }
 
 /// Full-screen viewer over a post's files, or a thread's.
@@ -471,6 +480,8 @@ pub struct App {
     pub pages: Option<crate::pages::Pages>,
     /// `scroll_margin`: where the selected post sits while reading (a fraction of the screen).
     pub scroll_margin: f32,
+    /// `thread_width`: a thread's most columns (0: the screen's).
+    pub thread_width: u16,
     /// The config's `[[filter]]` tables, as last read or written (`filters` is made from them).
     pub filter_cfgs: Vec<crate::filter::FilterConfig>,
     /// `hidden_words`: posts with one are hidden everywhere.
@@ -636,6 +647,7 @@ impl App {
             hidden_words: cfg.hidden_words.clone(),
             filter_cfgs: cfg.filters.clone(),
             scroll_margin: if cfg.scroll_margin.is_finite() { cfg.scroll_margin.clamp(0.0, 0.5) } else { 0.3 },
+            thread_width: cfg.thread_width,
             pages: crate::pages::Pages::default_dir()
                 .filter(|_| !cfg!(test) && cfg.page_cache_mb > 0)
                 .map(|d| crate::pages::Pages::new(d, cfg.page_cache_mb.saturating_mul(1024 * 1024))),

@@ -181,7 +181,7 @@ ones for where you are.
 | `c`  | which posts: a conversation, a poster's posts, only those with files, hidden posts, spoilers (below) [`show`] |
 | `r`  | reply, quoting the post (see Posting) [`reply`] |
 | `w`  | watch / unwatch [`watch`] |
-| `p`  | preview the posts a post quotes [`preview`] |
+| `p`  | preview the posts a post quotes; one in another thread (its quote ends in `→`) is fetched from there, and `enter` goes to it when it's the only kind [`preview`] |
 | `n` / `N` | next / previous search match [`next_match`, `prev_match`] |
 | `V`  | gallery of every file in the thread [`gallery`] |
 | `d`  | save the focused file, or all the post's files; in the gallery, the selected one [`download`] |
@@ -208,6 +208,10 @@ it above and what comes next below. Reading up with `k` does the same at the top
 (following a quote, going back, `. U`, `n`, a search hit, a hint) land there too. `scroll_margin =
 0.5` keeps the selected post centered, and `0` lets it reach the edges (scrolling as little
 as possible, as before); Settings › Reading position cycles through them.
+
+On a wide screen a thread is at most `thread_width` columns wide (140 by default, posts with
+their thumbnails), centered: long lines are hard to read. `0` uses the whole width;
+Settings › Thread width cycles through 100, 120, 140, 160 and that.
 
 ### Reading the end of a thread
 
@@ -922,7 +926,8 @@ All settings are optional; see `config.example.toml` for every option with comme
 - `[[image_search]]`: reverse image search engines, see
   [Reverse image search](#reverse-image-search).
 - `[[site]]`, `default_sites = false`: see [Adding sites](#adding-sites).
-- `archive = "desuarchive"` on a `[[site]]`: the archive for 404'd threads and `. A` searches.
+- `archives = ["desuarchive", "palanq", "b4k"]` on a `[[site]]`: the archives for 404'd threads
+  and `. A` searches, the first that keeps the board.
 - `[keys]`: `action = "key"`, `action = ["key", ...]`, or `action = []` for none (the `.`
   menu only), e.g. `watch = "Q"`; see
   [Remapping keys](#remapping-keys). Unknown actions, things that aren't keys, and two
@@ -974,8 +979,11 @@ boards = ["b", { uri = "tech", title = "Technology" }]
 thumb_ext = "png"   # only if the site renders every thumbnail as png (vichan's `thumb_ext`)
 ```
 
-A site can name a FoolFuuka archive with `archive = "desuarchive"`. When one of its
-threads 404s, ck offers to open it there (`enter`, or `. a` while the thread is still on screen).
+A site can name FoolFuuka archives with `archives = ["desuarchive", "palanq", "b4k"]` (4chan
+does). Each keeps some boards: archive search (`. A`) and a thread that 404s use the first
+that keeps the board, as its board list says; when a list isn't known yet, the search asks for
+it first, and says so if none keeps the board. When one of its threads 404s, ck offers to open
+it there (`enter`, or `. a` while the thread is still on screen).
 
 Config files from earlier versions of ck hold a copy of every built-in site (ck used to read
 only the sites in the file). Those copies still work (each replaces the built-in site of its name); delete

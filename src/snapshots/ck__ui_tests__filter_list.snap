@@ -9,9 +9,9 @@ expression: snapshot(&mut a)
     Colors            as the theme has them             Change any color of the current theme
     Color depth       auto (24-bit)                     24-bit color, or the nearest of 256
     Reading position  30% from the edges                How far from the edges the selected post…
+    Thread width      140 columns at most               Long lines are hard to read: a thread th…
     Terminal title    set by ck                         Where you are and how many posts are new…
 
-  Catalog
     Filters                             enter edit · space on/off · a add · x remove · esc close
 
      hide        crypto                subject+comment   everywhere          (?i)…  nothing here
@@ -21,6 +21,7 @@ expression: snapshot(&mut a)
 
     Counts are for the open catalog and thread. Kept in the config as [[filter]] tables.
 
+    Hidden replies    shown                             In a thread, replies to a hidden post ar…
 
   Background refresh
     Open thread       every 10s                         How often the open thread updates
@@ -30,5 +31,4 @@ expression: snapshot(&mut a)
     Reading the end   new posts come into view          New posts come into view while you read …
 
   Sites
-    Add a site        23 sites so far                   Paste a link to any page of it; ck finds…
- enter change   esc back   ? help                                                         1/24  4%
+ enter change   esc back   ? help                                                         1/25  4%

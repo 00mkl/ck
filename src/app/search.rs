@@ -7,10 +7,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use super::{App, FilteredList, Marks, Opening, Then, ThreadView, View};
 use crate::store::ThreadKey;
-use crate::backend::SearchPage;
+use crate::backend::{Backend, SearchPage};
 use crate::config::SiteKind;
 use crate::keys::Action;
 use crate::model::{Board, Post};
+
+/// What an archive search found: the board lists it learned on the way, and the archive
+/// that keeps the board with its first page of results (none if no archive keeps it).
+type Found = (Vec<(usize, Vec<Board>)>, Option<(usize, SearchPage)>);
 
 pub struct Search {
     /// Searching saved threads instead of an archive.
@@ -86,22 +90,35 @@ pub enum SavedFound {
 }
 
 impl App {
-    /// The archive to search for the current board: the site itself if it's an archive,
-    /// else its configured `archive`.
-    pub(super) fn archive_site(&self) -> Option<usize> {
-        let site = self.current_site();
-        if site.cfg.kind == SiteKind::Foolfuuka {
-            return Some(self.tab.site);
+    /// The archives that may keep `site`'s threads: the site itself if it's one, else its
+    /// `archives` (those that are), in order.
+    pub(super) fn archives_of(&self, site: usize) -> Vec<usize> {
+        let Some(s) = self.sites.get(site) else { return Vec::new() };
+        if s.cfg.kind == SiteKind::Foolfuuka {
+            return vec![site];
         }
-        let name = site.cfg.archive.as_ref()?;
-        self.site_index(name).filter(|&i| self.sites.get(i).is_some_and(|s| s.cfg.kind == SiteKind::Foolfuuka))
+        let archive = |i: &usize| self.sites.get(*i).is_some_and(|a| a.cfg.kind == SiteKind::Foolfuuka);
+        s.cfg.archives.iter().filter_map(|n| self.site_index(n)).filter(archive).collect()
     }
 
-    /// `f` in a catalog: ask what to search for.
+    /// Whether archive `i` keeps `board`, as far as its board list is known.
+    fn keeps(&self, i: usize, board: &str) -> Option<bool> {
+        self.known_boards(i).map(|boards| boards.iter().any(|b| b.uri == board))
+    }
+
+    /// The archive to look in for `board` of `site`, without asking: the first known to keep
+    /// it, else the first whose boards aren't known yet.
+    pub(super) fn archive_for(&self, site: usize, board: &str) -> Option<usize> {
+        let archives = self.archives_of(site);
+        let first = |want: Option<bool>| archives.iter().copied().find(|&i| self.keeps(i, board) == want);
+        first(Some(true)).or_else(|| first(None))
+    }
+
+    /// `A` in a catalog: ask what to search for.
     pub fn start_archive_search(&mut self) {
-        match self.archive_site() {
-            Some(_) => self.typing = Some(super::Typing::ArchiveQuery(String::new())),
-            None => self.info("This site has no archive to search (see `archive` in the config)"),
+        match self.archives_of(self.tab.site).is_empty() {
+            false => self.typing = Some(super::Typing::ArchiveQuery(String::new())),
+            true => self.info("This site has no archive to search (see `archives` in the config)"),
         }
     }
 
@@ -120,17 +137,73 @@ impl App {
         }
     }
 
+    /// Search the first of the site's archives known to keep the board; else ask those whose
+    /// boards aren't known yet, in turn, and search the first that does. (An archive asked
+    /// for a board it doesn't keep searches all of them instead.)
     fn search_archive(&mut self, query: String) {
-        let (Some(archive), Some(board)) = (self.archive_site(), self.tab.board.as_ref().map(|b| b.uri.clone())) else { return };
+        let Some(board) = self.tab.board.as_ref().map(|b| b.uri.clone()) else { return };
         let back = match &self.tab.search {
             Some(s) => s.back.clone(),
             None => (self.tab.site, self.tab.board.clone(), self.tab.place_view()),
         };
+        let archives = self.archives_of(self.tab.site);
+        // One known to keep the board: searched at once.
+        if let Some(archive) = archives.iter().copied().find(|&i| self.keeps(i, &board) == Some(true)) {
+            self.show_search(archive, board, query, back);
+            return self.load_search_page();
+        }
+        let names: Vec<String> = archives.iter().filter_map(|&i| self.sites.get(i)).map(|s| s.cfg.name.clone()).collect();
+        let asked: Vec<(usize, Arc<dyn Backend>, Option<bool>)> = archives.iter().filter_map(|&i| Some((i, self.sites.get(i)?.backend.clone(), self.keeps(i, &board)))).collect();
+        let Some(first) = asked.first().map(|(_, b, _)| b.clone()) else { return };
+        let (b, q) = (board.clone(), query.clone());
+        let label = format!("Searching /{board}/ for \"{query}\"");
+        let job = move |_: &dyn Backend, _, _: &_| -> anyhow::Result<Found> {
+            let mut learned = Vec::new();
+            for (i, archive, keeps) in asked {
+                // One that can't say keeps nothing, for now.
+                let keeps = keeps.unwrap_or_else(|| match archive.boards(&|_| {}) {
+                    Ok(boards) => {
+                        let keeps = boards.iter().any(|x| x.uri == b);
+                        learned.push((i, boards));
+                        keeps
+                    }
+                    Err(_) => false,
+                });
+                if keeps {
+                    return Ok((learned, Some((i, archive.search(&b, &q, 1)?))));
+                }
+            }
+            Ok((learned, None))
+        };
+        self.spawn(first, label, Then::Show, job, move |app, r| app.archive_searched(board, query, back, &names, r));
+    }
+
+    /// The first page of an archive search arrived (or no archive keeps the board).
+    pub(super) fn archive_searched(&mut self, board: String, query: String, back: (usize, Option<Board>, View), names: &[String], res: anyhow::Result<Found>) {
+        let (learned, found) = match res {
+            Ok(r) => r,
+            Err(e) => return self.error(e),
+        };
+        for (i, boards) in learned {
+            self.set_boards(i, boards, true);
+        }
+        let Some((archive, page)) = found else {
+            let msg = match names {
+                [one] => format!("{one} doesn't keep /{board}/"),
+                _ => format!("None of the archives ({}) keeps /{board}/", names.join(", ")),
+            };
+            return self.info(msg);
+        };
+        self.show_search(archive, board, query, back);
+        self.search_results(1, Ok(page));
+    }
+
+    /// The results view of a search of `board` on `archive`, empty so far.
+    fn show_search(&mut self, archive: usize, board: String, query: String, back: (usize, Option<Board>, View)) {
         self.switch_site(archive);
         self.tab.search = Some(Search { saved: None, board, query, hits: Vec::new(), marks: Marks::default(), total: None, pages: 0, back });
         self.tab.search_list = FilteredList::fresh();
         self.tab.navigate(View::Search);
-        self.load_search_page();
     }
 
     /// Search every saved copy for `query`, newest first, off the UI thread: results come in
@@ -233,7 +306,8 @@ impl App {
             Ok(p) => {
                 s.pages = page;
                 s.total = p.total.or(s.total);
-                s.hits.extend(p.hits);
+                // Only the board searched (an archive that doesn't keep it answers for all).
+                s.hits.extend(p.hits.into_iter().filter(|(_, post)| post.board.as_ref().is_none_or(|b| *b == s.board)));
                 self.mark_hits();
                 let Some(s) = &self.tab.search else { return };
                 let msg = match s.hits.len() {

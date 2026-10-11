@@ -13,7 +13,7 @@ use std::rc::Rc;
 use ratatui_image::Image;
 
 use crate::app::{
-    App, Clock, Hit, LineCache, LinkItem, Part, Pending, Popup, Reveal, TabPopup, Spot, SettingsPopup, SiteRow, Sort, Status, ThreadLayout, ThreadCopy, ThreadView, Typing, View, key_rows,
+    App, Clock, Hit, LineCache, LinkItem, Part, Pending, Popup, Quoted, Reveal, TabPopup, Spot, SettingsPopup, SiteRow, Sort, Status, ThreadLayout, ThreadCopy, ThreadView, Typing, View, key_rows,
     setting_rows, settings,
 };
 use std::collections::HashMap;
@@ -329,7 +329,8 @@ fn location(app: &App) -> (Vec<String>, Vec<Span<'static>>) {
         View::Thread => {
             let mut return_crumbs = None;
             let th = app.tab.thread.as_ref();
-            let subject = th.and_then(|th| th.posts.first()?.subject.clone()).unwrap_or_else(|| {
+            // Its subject, else how its first post starts (as its tab says), else its number.
+            let subject = th.map(|th| crate::app::thread_subject(&th.posts)).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| {
                 th.map_or_else(|| "Thread".into(), |th| format!("Thread {}", th.key().no))
             });
             if let Some(th) = th {

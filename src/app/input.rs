@@ -872,12 +872,52 @@ impl App {
         let Some(t) = &self.tab.thread else { return };
         let Some(p) = t.current() else { return };
         let posts: Vec<u64> = p.quotes.iter().copied().filter(|q| t.index.contains_key(q)).collect();
-        let elsewhere: Vec<u64> = p.links.iter().filter_map(|l| l.post).filter(|n| !t.index.contains_key(n)).collect();
-        if posts.is_empty() && elsewhere.is_empty() {
+        let links: Vec<crate::model::Link> = p.links.iter().filter(|l| l.post.is_some_and(|n| !t.index.contains_key(&n))).cloned().collect();
+        if posts.is_empty() && links.is_empty() {
             self.info("Post quotes nothing");
             return;
         }
-        self.tab.popup = Some(TabPopup::Preview(Preview { posts, elsewhere, scroll: ListState::default() }));
+        let elsewhere = links.into_iter().map(|l| {
+            let quoted = if l.thread.is_some() { Quoted::Loading } else { Quoted::Missing("its thread isn't known; enter in the thread follows it".into()) };
+            (l, quoted)
+        });
+        self.tab.popup = Some(TabPopup::Preview(Preview { posts, elsewhere: elsewhere.collect(), scroll: ListState::default() }));
+        self.fetch_quoted();
+    }
+
+    /// Fetch the threads the preview's quotes from elsewhere are in, each once, in the
+    /// background.
+    fn fetch_quoted(&mut self) {
+        let Some(TabPopup::Preview(p)) = &self.tab.popup else { return };
+        let here = self.tab.board.as_ref().map(|b| b.uri.clone()).unwrap_or_default();
+        let mut threads: Vec<(String, u64)> = p.elsewhere.iter().filter_map(|(l, _)| Some((l.board.clone().unwrap_or_else(|| here.clone()), l.thread?))).collect();
+        threads.dedup();
+        let backend = self.current_site().backend.clone();
+        for (board, no) in threads {
+            let (later, backend) = (self.later(), backend.clone());
+            std::thread::spawn(move || {
+                let res = crate::guard::result(|| backend.thread(&board, no).map(crate::model::Thread::into_posts));
+                later.run(move |app| app.quoted_fetched(&board, no, &res));
+            });
+        }
+    }
+
+    /// A thread the preview quotes arrived: its quoted posts show.
+    pub(super) fn quoted_fetched(&mut self, board: &str, no: u64, res: &anyhow::Result<Vec<Post>>) {
+        let here = self.tab.board.as_ref().map(|b| b.uri.clone()).unwrap_or_default();
+        let Some(TabPopup::Preview(p)) = &mut self.tab.popup else { return };
+        for (link, quoted) in &mut p.elsewhere {
+            if link.thread != Some(no) || link.board.as_deref().unwrap_or(&here) != board || !matches!(quoted, Quoted::Loading) {
+                continue;
+            }
+            *quoted = match res {
+                Ok(posts) => match posts.iter().find(|post| Some(post.no) == link.post) {
+                    Some(post) => Quoted::Found(Box::new(post.clone())),
+                    None => Quoted::Missing("not in its thread any more".into()),
+                },
+                Err(e) => Quoted::Missing(crate::http::plain(e)),
+            };
+        }
     }
 
     fn on_preview_key(&mut self, code: KeyCode) {
@@ -889,12 +929,17 @@ impl App {
             KeyCode::Char(' ') | KeyCode::PageDown => scroll_by(s, 10),
             KeyCode::PageUp => scroll_by(s, -10),
             KeyCode::Char('g') => scroll_by(s, isize::MIN),
-            // Jump to the (first) quoted post.
+            // Jump to the (first) quoted post; if it's in another thread, go there.
             KeyCode::Enter => {
                 let first = p.posts.first().copied();
+                let away = p.elsewhere.first().map(|(l, _)| l.clone());
                 self.tab.popup = None;
-                if let (Some(t), Some(no)) = (&mut self.tab.thread, first) {
-                    t.jump_to(no);
+                match (&mut self.tab.thread, first, away) {
+                    (Some(t), Some(no), _) => {
+                        t.jump_to(no);
+                    }
+                    (_, None, Some(link)) => self.follow(&link),
+                    _ => {}
                 }
             }
             _ => self.tab.popup = None,

@@ -1401,7 +1401,7 @@ fn adding_a_site() {
         url: Some("https://somechan.org".into()),
         boards: Some(vec![BoardConfig::Uri("b".into())]),
         thumb_ext: None,
-        archive: None,
+        archives: Vec::new(),
         media_url: None,
         post_url: None,
     };
@@ -1482,7 +1482,7 @@ fn settings_list_popups() {
     use crate::config::{SiteConfig, SiteKind};
     let mut a = app(false);
     a.tab.navigate(View::Settings);
-    let site = |name: &str| SiteConfig { name: name.into(), kind: SiteKind::Vichan, url: Some(format!("https://{name}.example")), boards: None, thumb_ext: None, archive: None, media_url: None, post_url: None };
+    let site = |name: &str| SiteConfig { name: name.into(), kind: SiteKind::Vichan, url: Some(format!("https://{name}.example")), boards: None, thumb_ext: None, archives: Vec::new(), media_url: None, post_url: None };
     let mut shots = Vec::new();
     // Your sites: none, then three with one armed for removal.
     a.popup = Some(Popup::Settings(SettingsPopup::Sites(MySites { list: ratatui::widgets::ListState::default().with_selected(Some(0)), sites: vec![], armed: None })));
@@ -1550,7 +1550,11 @@ fn every_view_draws_on_tiny_screens() {
         ("thread", || thread_app(true)),
         ("quote preview", || {
             let mut a = thread_app(false);
-            a.tab.popup = Some(crate::app::TabPopup::Preview(Preview { posts: vec![1001], elsewhere: vec![7], scroll: Default::default() }));
+            a.tab.popup = Some(crate::app::TabPopup::Preview(Preview {
+                posts: vec![1001],
+                elsewhere: vec![(crate::model::Link { board: None, thread: Some(5), post: Some(7) }, crate::app::Quoted::Missing("gone".into()))],
+                scroll: Default::default(),
+            }));
             a
         }),
         ("links", || {
@@ -1606,13 +1610,21 @@ fn thread_gone_without_a_copy_offers_the_archive() {
     a.thread_gone(&ThreadKey { site: "4chan".into(), board: "g".into(), no: 901 });
     let text = &a.status().unwrap().text;
     assert_eq!(text, "Thread was deleted or archived: enter opens it in desuarchive");
-    // Not when the archive is known not to keep the board.
+    // The first of the archives that keeps the board; none when none does.
     let mut a = app(false);
     a.tab.navigate(View::Thread);
-    let i = a.sites.iter().position(|s| s.cfg.name == "desuarchive").unwrap();
-    a.sites[i].boards = Some(vec![crate::model::Board { uri: "a".into(), title: String::new(), nsfw: None }]);
+    let keeps = |a: &mut App, name: &str, board: &str| {
+        let i = a.sites.iter().position(|s| s.cfg.name == name).unwrap();
+        a.sites[i].boards = Some(vec![crate::model::Board { uri: board.into(), title: String::new(), nsfw: None }]);
+    };
+    keeps(&mut a, "desuarchive", "a");
+    keeps(&mut a, "palanq", "a");
+    keeps(&mut a, "b4k", "g");
     a.thread_gone(&ThreadKey { site: "4chan".into(), board: "g".into(), no: 901 });
-    assert_eq!(a.status().unwrap().text, "Thread was deleted or archived");
+    assert_eq!(a.status().unwrap().text, "Thread was deleted or archived: enter opens it in b4k");
+    keeps(&mut a, "b4k", "a");
+    a.thread_gone(&ThreadKey { site: "4chan".into(), board: "g".into(), no: 902 });
+    assert!(a.tab.archive_offer.is_none());
 }
 
 #[test]

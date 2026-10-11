@@ -75,6 +75,15 @@ pub const SECTIONS: &[(&str, &[Setting])] = &[
             App::next_scroll_margin,
         ),
         row(
+            "Thread width",
+            "Long lines are hard to read: a thread this wide at most, centered",
+            |a| match a.thread_width {
+                0 => "the whole screen".into(),
+                w => format!("{w} columns at most"),
+            },
+            App::next_thread_width,
+        ),
+        row(
             "Terminal title",
             "Where you are and how many posts are new, in the window's title",
             |a| if a.set_title { "set by ck" } else { "left alone" }.into(),
@@ -250,6 +259,7 @@ pub const SECTIONS: &[(&str, &[Setting])] = &[
 const REFRESH_THREAD: &[u64] = &[10, 15, 30, 60, 120];
 /// The scroll margins Settings cycles through (a fraction of the screen).
 const SCROLL_MARGINS: &[f32] = &[0.0, 0.2, 0.3, 0.5];
+const THREAD_WIDTHS: &[u16] = &[100, 120, 140, 160, 0];
 const REFRESH_WATCHED: &[u64] = &[60, 120, 300, 600, 1800];
 
 /// Every setting, in display order.
@@ -357,6 +367,13 @@ impl App {
             t.margin = next;
         }
         self.save_config(&format!("scroll_margin = {next}"), |d| d["scroll_margin"] = toml_edit::value(f64::from(next)));
+    }
+
+    fn next_thread_width(&mut self) {
+        let at = THREAD_WIDTHS.iter().position(|&w| w == self.thread_width);
+        let next = at.and_then(|i| THREAD_WIDTHS.get(i + 1)).or(THREAD_WIDTHS.first()).copied().unwrap_or(0);
+        self.thread_width = next;
+        self.save_config(&format!("thread_width = {next}"), |d| d["thread_width"] = toml_edit::value(i64::from(next)));
     }
 
     fn notify_value(&self) -> String {

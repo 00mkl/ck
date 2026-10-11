@@ -180,8 +180,26 @@ pub(super) fn draw_preview(f: &mut Frame, app: &mut App) {
         lines.extend(post_card(t, i, app.clock, width));
         lines.push(Line::raw(""));
     }
-    for n in &p.elsewhere {
-        lines.push(Line::styled(format!(">>{n} is in another thread or board; enter in the thread follows it"), dim()));
+    for (link, quoted) in &p.elsewhere {
+        let no = link.post.unwrap_or_default();
+        let thread = link.thread.map_or_else(String::new, |th| format!(" in thread {th}"));
+        let here = app.tab.board.as_ref().map(|b| b.uri.as_str());
+        let board = link.board.as_ref().filter(|b| Some(b.as_str()) != here).map_or_else(String::new, |b| format!(" on /{b}/"));
+        match quoted {
+            Quoted::Found(post) => {
+                lines.push(Line::from(vec![
+                    Span::styled(post.poster.name().to_string(), bold(theme().name)),
+                    Span::styled(format!("  {}  No.{no}{thread}{board}", ago(post.time, app.clock)), dim()),
+                ]));
+                for line in &post.body {
+                    let painted = Line::from(line.spans.iter().map(|s| Span::styled(s.content.clone(), theme::paint(s.style))).collect::<Vec<_>>());
+                    lines.extend(markup::wrap(&painted, width));
+                }
+            }
+            Quoted::Loading => lines.push(Line::styled(format!(">>{no}{thread}{board}: loading…"), dim())),
+            Quoted::Missing(why) => lines.push(Line::styled(format!(">>{no}{thread}{board}: {why}"), dim())),
+        }
+        lines.push(Line::raw(""));
     }
     while lines.last().is_some_and(|l| markup::spans_columns(&l.spans) == 0) {
         lines.pop();
@@ -364,7 +382,7 @@ pub(super) fn draw_add_filter(f: &mut Frame, app: &mut App) {
             },
         ]
     };
-    list_panel(f, (72, &format!("Filter like No.{}", a.post), "enter add · esc cancel"), &mut a.list, &a.candidates, ("", true), foot, |_, c, width| {
+    list_panel(f, (72, &format!("Filter like No.{}", a.post), "enter add · esc cancel"), &mut a.list, &a.candidates, ("Nothing in it to filter on but its words: type one", true), foot, |_, c, width| {
         let room = (width as usize).saturating_sub(c.field.as_str().len() + 2);
         let left = vec![Span::styled(truncate(&c.what, room), Style::new().fg(t.text))];
         spread(left, vec![Span::styled(c.field.as_str(), dim())], width as usize)
