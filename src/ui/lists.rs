@@ -90,14 +90,19 @@ pub(super) fn draw_sites(f: &mut Frame, app: &mut App, area: Rect) {
     }
 }
 
-/// `site  /board/  subject`, the shared start of Watched and History rows.
-fn thread_row(key: &crate::store::ThreadKey, subject: &str) -> Vec<Span<'static>> {
+/// `site  /board/  subject`, the shared start of Watched, History and Saved rows, in a row
+/// `width` wide: the subject gets what's left (`spread` cuts it). On a narrow screen the
+/// site goes, and the board takes only its own room.
+fn thread_row(key: &crate::store::ThreadKey, subject: &str, width: usize) -> Vec<Span<'static>> {
     let t = theme();
-    vec![
-        Span::styled(pad(&key.site, 11), dim()),
-        Span::styled(pad(&format!("/{}/", key.board), 10), bold(t.primary)),
-        Span::styled(truncate(subject, 52), Style::new().fg(t.text)),
-    ]
+    let board = format!("/{}/", key.board);
+    let mut row = Vec::new();
+    if width >= 70 {
+        row.push(Span::styled(pad(&key.site, 11), dim()));
+    }
+    row.push(Span::styled(if width >= 50 { pad(&board, 10) } else { format!("{board} ") }, bold(t.primary)));
+    row.push(Span::styled(subject.to_string(), Style::new().fg(t.text)));
+    row
 }
 
 pub(super) fn draw_watched(f: &mut Frame, app: &mut App, area: Rect) {
@@ -133,7 +138,7 @@ pub(super) fn draw_watched(f: &mut Frame, app: &mut App, area: Rect) {
             None => {}
         }
         right.push(Span::styled(plural(w.posts, "post"), dim()));
-        vec![spread(thread_row(&w.key, &w.subject), right, width)]
+        vec![spread(thread_row(&w.key, &w.subject, width), right, width)]
     });
     app.list_scrolled(View::Watched, state.offset());
     if app.drawn.body.is_none() {
@@ -148,7 +153,7 @@ pub(super) fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
     let mut state = app.list_state(View::History);
     app.drawn.body = draw_rows(f, area, rows.len(), &mut state, (1, 0), None, &|_| false, &mut |k| {
         let Some(v) = rows.get(k).and_then(|&i| app.store.history.get(i)) else { return Vec::new() };
-        vec![spread(thread_row(&v.key, &v.subject), vec![Span::styled(ago(v.opened, app.clock), dim())], width)]
+        vec![spread(thread_row(&v.key, &v.subject, width), vec![Span::styled(ago(v.opened, app.clock), dim())], width)]
     });
     app.list_scrolled(View::History, state.offset());
     if app.drawn.body.is_none() {
@@ -169,10 +174,8 @@ pub(super) fn draw_saved(f: &mut Frame, app: &mut App, area: Rect) {
         } else if app.store.watched(&m.key).is_some() {
             right.extend([chip("watching", t.on_primary_container, t.primary_container), Span::raw(" ")]);
         }
-        right.push(Span::styled(format!(" {}  ·  {}", plural(m.posts, "post"), ago(m.saved, app.clock)), dim()));
-        let mut left = thread_row(&m.key, &m.subject);
-        left.push(Span::styled(format!("  No.{}", m.key.no), dim()));
-        vec![spread(left, right, width)]
+        right.push(Span::styled(format!(" No.{}  ·  {}  ·  {}", m.key.no, plural(m.posts, "post"), ago(m.saved, app.clock)), dim()));
+        vec![spread(thread_row(&m.key, &m.subject, width), right, width)]
     });
     app.list_scrolled(View::Saved, state.offset());
     if app.drawn.body.is_none() {
@@ -216,6 +219,7 @@ pub(super) fn draw_catalog(f: &mut Frame, app: &mut App, area: Rect) {
         draw_grid(f, app, area);
         return;
     }
+    let area = super::readable(app.text_width, area);
     let compact = layout == CatalogLayout::Compact;
     let thumbs = images && !compact;
     // Lines of text a card shows, and its thumbnail (as tall as the card, its shape kept).
@@ -251,10 +255,11 @@ pub(super) fn draw_catalog(f: &mut Frame, app: &mut App, area: Rect) {
         if let Some(b) = p.board.as_ref().filter(|b| app.tab.catalog.board().is_some_and(|cur| cur.uri != **b)) {
             head.extend([chip(format!("/{b}/"), t.on_primary_container, t.primary_container), Span::raw(" ")]);
         }
+        // A thread without a subject has its text as its title, under (or, compact, beside)
+        // the chips.
         let subject_style = if hidden { dim() } else { bold(t.text) };
-        match &p.subject {
-            Some(s) => head.push(Span::styled(s.clone(), subject_style)),
-            None => head.push(Span::styled(format!("No.{}", p.no), dim())),
+        if let Some(s) = &p.subject {
+            head.push(Span::styled(s.clone(), subject_style));
         }
         // Some overboards don't give counts; show nothing rather than zeros.
         let mut meta = Vec::new();
@@ -286,6 +291,7 @@ pub(super) fn draw_catalog(f: &mut Frame, app: &mut App, area: Rect) {
         let meta_w = markup::spans_columns(&meta);
         let head_room = text_w.saturating_sub(meta_w + 2);
         if head_w > head_room
+            && p.subject.is_some()
             && let Some(last) = head.last_mut()
         {
             let others = head_w.saturating_sub(markup::columns(&last.content));
@@ -294,13 +300,24 @@ pub(super) fn draw_catalog(f: &mut Frame, app: &mut App, area: Rect) {
         if compact {
             let used = markup::spans_columns(&head) + markup::spans_columns(&meta);
             let room = text_w.saturating_sub(used + 4);
+            let text = if p.subject.is_some() || hidden { dim() } else { Style::new().fg(t.text) };
+            let gap = if head.is_empty() { "" } else { "  " };
             if room > 8 {
-                head.push(Span::styled(format!("  {}", truncate(p.plain_text(), room)), dim()));
+                head.push(Span::styled(format!("{gap}{}", truncate(p.plain_text(), room)), text));
             }
             return vec![spread(head, meta, text_w)];
         }
+        // Without a subject, the text starts beside the chips.
+        let mut text = p.plain_text();
+        if p.subject.is_none() {
+            let (first, rest) = first_words(text, head_room.saturating_sub(head_w));
+            if !first.is_empty() {
+                head.push(Span::styled(first.to_string(), if hidden { dim() } else { Style::new().fg(t.text) }));
+                text = rest.trim_start();
+            }
+        }
         let mut lines = vec![spread(head, meta, text_w)];
-        lines.extend(excerpt(p.plain_text(), Style::new().fg(t.text), text_w, usize::from(text_rows)));
+        lines.extend(excerpt(text, Style::new().fg(t.text), text_w, usize::from(text_rows)));
         if thumbs {
             lines.resize(thumb.height as usize, Line::raw(""));
             lines = beside_tile(lines, thumb.width + 1);
@@ -352,6 +369,7 @@ const WATCHING: &str = "◉ ";
 /// Archive search results: each post with its thread, as cards.
 pub(super) fn draw_search(f: &mut Frame, app: &mut App, area: Rect) {
     let t = theme();
+    let area = super::readable(app.text_width, area);
     let mut state = app.list_state(View::Search);
     let Some(s) = &app.tab.search else { return };
     // Saved threads: how far the search has got, above the results.
@@ -444,6 +462,8 @@ fn around_match(text: &str, needle: &str, width: usize) -> Vec<Line<'static>> {
 
 /// Grid cards: a thumbnail over three lines of text.
 const GRID_CARD: Size = Size::new(20, 11);
+/// A grid card's width on a wide screen.
+const GRID_WIDE: u16 = 26;
 
 /// The catalog as a grid of thumbnails, as many columns as fit.
 fn draw_grid(f: &mut Frame, app: &mut App, area: Rect) {
@@ -455,8 +475,16 @@ fn draw_grid(f: &mut Frame, app: &mut App, area: Rect) {
         }
         return;
     }
-    let (cell_w, cell_h) = (GRID_CARD.width + 2, GRID_CARD.height + 1);
-    let cols = ((area.width + 2) / cell_w).max(1) as usize;
+    // As many columns as fit; past a few, wider cards (fewer of them) so titles have room.
+    // The columns share the width, leaving none of it empty on the right.
+    let fit = |card: u16| (area.width + 2) / (card + 2);
+    let cols = match fit(GRID_CARD.width) {
+        n if n > 4 => fit(GRID_WIDE).max(4),
+        n => n.max(1),
+    };
+    let (cell_w, cell_h) = (((area.width + 2) / cols).max(GRID_CARD.width + 2), GRID_CARD.height + 1);
+    let card_w = cell_w - 2;
+    let cols = usize::from(cols);
     let rows = ((area.height + 1) / cell_h).max(1) as usize;
     let mut state = app.list_state(View::Catalog);
     let sel = state.selected().unwrap_or(0).min(visible.len() - 1);
@@ -465,7 +493,7 @@ fn draw_grid(f: &mut Frame, app: &mut App, area: Rect) {
     for (k, &i) in visible.iter().enumerate().skip(top * cols).take((rows + 1) * cols) {
         let (r, c) = (k / cols - top, k % cols);
         let (x, y) = (area.x + c as u16 * cell_w, area.y + r as u16 * cell_h);
-        let card = Rect::new(x, y, GRID_CARD.width, GRID_CARD.height).intersection(area);
+        let card = Rect::new(x, y, card_w, GRID_CARD.height).intersection(area);
         let off = app.tab.catalog.posts().get(i).is_some_and(|p| !app.catalog_images_on(p));
         if card.is_empty() {
             // Below the screen: prefetch from media hosts.
@@ -485,7 +513,7 @@ fn draw_grid(f: &mut Frame, app: &mut App, area: Rect) {
                 put(f, tile.x, tile.y + tile.height / 2, tile.width, Line::styled("no file", dim()).centered());
             }
         }
-        let w = GRID_CARD.width - PAD - 1;
+        let w = card_w - PAD - 1;
         let mut head = Vec::new();
         if app.catalog_watching(p) {
             head.push(Span::styled(WATCHING, bold(t.primary)));
@@ -527,6 +555,18 @@ fn draw_grid(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
     app.drawn.body = Some(Hit::Grid { area, offset: top * cols, cols, cell: (cell_w, cell_h) });
+}
+
+/// The words at the start of `text` that fit in `width` columns, and the rest.
+fn first_words(text: &str, width: usize) -> (&str, &str) {
+    let mut end = 0;
+    for (i, _) in text.match_indices(' ').chain(std::iter::once((text.len(), ""))) {
+        if markup::columns(text.get(..i).unwrap_or_default()) > width {
+            break;
+        }
+        end = i;
+    }
+    text.split_at_checked(end).unwrap_or((text, ""))
 }
 
 /// `text` wrapped to `width`, cut to `rows` lines with "…" if there's more.

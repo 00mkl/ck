@@ -35,10 +35,10 @@ pub struct Config {
     /// screen, 0 to 0.5) from the screen's top and bottom.
     #[serde(default = "default_scroll_margin")]
     pub scroll_margin: f32,
-    /// A thread is at most this many columns wide, centered on a wider screen (long lines
-    /// are hard to read); 0: the screen's width.
-    #[serde(default = "default_thread_width")]
-    pub thread_width: u16,
+    /// Threads, catalogs and search results are at most this many columns wide, centered on
+    /// a wider screen (long lines are hard to read); 0: the screen's width.
+    #[serde(default = "default_text_width")]
+    pub text_width: u16,
     /// Sites left off the home screen (by name).
     #[serde(default)]
     pub hidden_sites: Vec<String>,
@@ -161,7 +161,7 @@ fn default_scroll_margin() -> f32 {
     0.3
 }
 
-fn default_thread_width() -> u16 {
+fn default_text_width() -> u16 {
     140
 }
 

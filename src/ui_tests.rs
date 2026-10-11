@@ -220,8 +220,9 @@ fn watched() {
     let mut a = app(false);
     a.tab.navigate(View::Watched);
     insta::assert_snapshot!(snapshot(&mut a));
-    // Narrow, the subjects give way: what's new and what died stay in sight.
-    let (text, _) = render_at(&mut a, 60, 10);
+    // Narrow, the site and then the subjects give way: what's new and what died stay in
+    // sight.
+    let (text, _) = render_at(&mut a, 50, 10);
     assert!(text.contains("2 new") && text.contains("archived/deleted") && text.contains("…"), "{text}");
 }
 

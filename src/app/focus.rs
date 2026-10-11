@@ -565,7 +565,7 @@ impl App {
             items.push(act(A::PrevTab, "previous tab"));
             items.push(act(A::CloseTab, "close the tab"));
         }
-        items.push(act(A::Goto, "go to a URL or site/board/thread"));
+        items.push(act(A::Goto, "a command (:tabnew, :marks, …) or a place to go to"));
         items.push(act(A::Settings, "settings"));
         items.push(act(A::Help, "every key"));
         items.push(act(A::Quit, "quit"));

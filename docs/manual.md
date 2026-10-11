@@ -209,9 +209,10 @@ it above and what comes next below. Reading up with `k` does the same at the top
 0.5` keeps the selected post centered, and `0` lets it reach the edges (scrolling as little
 as possible, as before); Settings › Reading position cycles through them.
 
-On a wide screen a thread is at most `thread_width` columns wide (140 by default, posts with
-their thumbnails), centered: long lines are hard to read. `0` uses the whole width;
-Settings › Thread width cycles through 100, 120, 140, 160 and that.
+On a wide screen threads, catalogs (in cards and compact) and search results are at most
+`text_width` columns wide (140 by default), centered: long lines are hard to read. `0` uses
+the whole width; Settings › Text width cycles through 100, 120, 140, 160 and that. The grid
+uses the whole width, with wider cards when there's room.
 
 ### Reading the end of a thread
 
@@ -310,7 +311,10 @@ one, their titles whole while they fit and the longest cut first when they don't
 the last). A tab on a watched thread counts the posts it has gained since you read it,
 like `2 Thread subject (5)`. Up to 9. Only the tab on screen refreshes its thread in the background;
 another tab's thread is refreshed when you come back to it (watched threads are refreshed
-anyway). The tabs are part of the session that's restored at the next start.
+anyway). Opening a thread that another tab already has (from a catalog, Watched or History)
+goes to that tab instead of opening it twice. The tabs are part of the session that's
+restored at the next start; a restored tab's thread counts as read (in History, and its
+posts as seen) only once you go to that tab.
 
 ### The command line
 
@@ -498,7 +502,7 @@ top of the Sites view lists watched threads from all sites with their post count
 many posts are new (posts you've hidden, or your filters and hidden words hide, aren't
 counted, nor notified about); threads that 404 stay listed as "archived/deleted", with
 nothing new (the totals on the Watched entry, its view and the title leave them out).
-"History" lists the last 100 threads you opened. `x` removes an entry from either list.
+"History" lists the last 100 threads you read, newest first. `x` removes an entry from either list.
 
 The open thread refreshes in the background every 10 seconds and watched threads every
 60 seconds (change with `refresh_thread_secs` / `refresh_watched_secs`; those are also the

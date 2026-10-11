@@ -29,6 +29,6 @@ expression: snapshot(&mut a)
                     B      images on this board: on → off
     Code:           E      save the thread as a page…
     fn main() {     R      reload
-        println!("  :      go to a URL or site/board/thread
+        println!("  :      a command (:tabnew, :marks, …) or a place to go to
     }
  j/k post   enter quote   . more   tab images & links   p preview quote   ? help          2/5  40%

@@ -71,19 +71,24 @@ impl App {
                 self.error(e.context("Couldn't save the board list"));
             }
         }
-        // A board opened before its site's list was known (`:` to a board) gets its title.
+        self.name_boards(site, &boards);
+        if let Some(s) = self.sites.get_mut(site) {
+            s.boards = Some(boards);
+        }
+        if complete {
+            self.note_titles(site);
+        }
+    }
+
+    /// A board opened before its site's list was known (`:` to a board) gets its title from
+    /// `boards`, as much of the list as has come.
+    fn name_boards(&mut self, site: usize, boards: &[Board]) {
         for tab in std::iter::once(&mut self.tab).chain(self.tabs.iter_mut()).filter(|t| t.site == site) {
             if let Some(open) = tab.board.as_mut().filter(|b| b.title.is_empty())
                 && let Some(known) = boards.iter().find(|b| b.uri == open.uri)
             {
                 *open = known.clone();
             }
-        }
-        if let Some(s) = self.sites.get_mut(site) {
-            s.boards = Some(boards);
-        }
-        if complete {
-            self.note_titles(site);
         }
     }
 
@@ -97,9 +102,14 @@ impl App {
             return;
         }
         self.boards_tried.insert(site, now);
-        let later = self.later();
+        let (later, early) = (self.later(), self.later());
         std::thread::spawn(move || {
-            let res = crate::guard::result(|| http::background_at(now, || backend.boards(&|_| {})));
+            // A list that comes in pages (endchan's) names what's open as it comes.
+            let partial = |so_far: &[Board]| {
+                let so_far = so_far.to_vec();
+                early.run(move |app| app.name_boards(site, &so_far));
+            };
+            let res = crate::guard::result(|| http::background_at(now, || backend.boards(&partial)));
             later.run(move |app| {
                 app.boards_refreshing.remove(&site);
                 // A failed background refresh keeps the saved list, with nothing to say; with
@@ -474,8 +484,11 @@ impl App {
         self.watched_checked.insert(key.clone(), self.clock.instant());
         let max_no = max_no(posts);
         let subject = thread_subject(posts);
-        // A visit is an open, or a refresh that brought new posts.
-        if shown_max.is_none_or(|m| max_no > m) {
+        // A visit is an open, or a refresh that brought new posts, in the tab shown: one
+        // that isn't (a tab brought back from last time) is read once it is.
+        if self.behind {
+            self.tab.unvisited = true;
+        } else if shown_max.is_none_or(|m| max_no > m) {
             self.store.visit(key, &subject, posts.len(), max_no, self.clock.now());
             self.watched_quiet.remove(key);
         }

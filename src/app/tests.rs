@@ -1632,6 +1632,35 @@ fn tabs_keep_their_own_place_and_responses() {
 }
 
 #[test]
+fn a_thread_in_a_tab_not_shown_is_read_once_it_is() {
+    let mut app = local_app();
+    let post = |no| Post { no, ..Default::default() };
+    app.goto_str("a/x/1");
+    app.handle(answer(app.tab.req().unwrap(), thread_arrived, arrived(vec![post(1)])));
+    // A second tab (as a restored one would be) whose thread arrives while the first shows.
+    app.tabs.push(Tab::new(0, Instant::now()));
+    app.switch_tab(1);
+    app.goto_str("a/x/2");
+    let req = app.tab.req().unwrap();
+    app.switch_tab(0);
+    app.handle(answer(req, thread_arrived, arrived(vec![post(2), post(3)])));
+    let history = |app: &App| app.store.history.iter().map(|v| v.key.no).collect::<Vec<_>>();
+    let two = ThreadKey { site: "a".into(), board: "x".into(), no: 2 };
+    assert_eq!((history(&app), app.store.last_seen(&two)), (vec![1], 0));
+    // Shown, it's read.
+    app.on_key(KeyEvent::from(KeyCode::Char(']')));
+    assert_eq!((app.active, history(&app), app.store.last_seen(&two)), (1, vec![2, 1], 3));
+    // Opening it from History in the other tab goes to the tab that has it.
+    app.on_key(KeyEvent::from(KeyCode::Char(']')));
+    app.tab.navigate(View::History);
+    app.pick_row(View::History, 0);
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert_eq!((app.tabs.len(), app.active, app.tab.thread.as_ref().unwrap().key().no), (2, 1, 2));
+    app.switch_tab(0);
+    assert_eq!(app.tab.view(), View::History);
+}
+
+#[test]
 fn new_tabs_switching_closing_and_the_session() {
     let dir = tempfile::tempdir().unwrap();
     let mut app = local_app();
@@ -5384,13 +5413,15 @@ fn back_to_history_keeps_the_thread_that_was_opened() {
 fn a_thread_loaded_in_another_tab_leaves_the_history_selection_alone() {
     let (mut app, _) = history_app();
     app.pick_row(View::History, 1);
+    let first = app.store.history.first().map(|h| h.key.no);
     app.tabs.push(Tab::new(0, Instant::now()));
     app.switch_tab(1);
     app.goto_str("a/x/1");
     let req = app.tab.req().unwrap();
     app.switch_tab(0);
     app.handle(answer(req, thread_arrived, arrived(nos(&[1, 2]))));
-    assert_eq!(app.store.history.first().map(|h| h.key.no), Some(1));
+    // Not read yet (its tab isn't shown), so not in History yet either.
+    assert_eq!(app.store.history.first().map(|h| h.key.no), first);
     assert_eq!(app.selected_listed().map(|(k, _)| k.no), Some(2));
 }
 
@@ -5836,7 +5867,7 @@ fn quotes_of_other_threads_are_marked_and_previewed() {
     assert_eq!(app.tab.view(), View::Thread);
 }
 
-/// A thread is at most `thread_width` columns wide, centered.
+/// A thread is at most `text_width` columns wide, centered.
 #[test]
 fn a_thread_on_a_wide_screen_keeps_to_its_width() {
     let mut app = thread_app_of(5);
@@ -5846,7 +5877,7 @@ fn a_thread_on_a_wide_screen_keeps_to_its_width() {
         _ => Rect::default(),
     };
     assert_eq!((area(&app).width, area(&app).x > 20), (140, true));
-    app.thread_width = 0;
+    app.text_width = 0;
     draw_at(&mut app, 200, 30);
     assert!(area(&app).width > 190);
 }

@@ -227,12 +227,12 @@ fn draw_tab_row(f: &mut Frame, app: &mut App, area: Rect) {
     let t = theme();
     // A watched thread's new posts, kept whatever the label is cut to.
     let tabs: Vec<(String, String)> = (0..n).map(|i| (app.tab_label(i), app.tab_unread(i).map_or(String::new(), |n| format!(" ({n})")))).collect();
-    // Each label whole (up to a few words' worth) if they all fit; else the longest are cut
-    // to the same length, as long as fits.
+    // Each label whole if they all fit; else the longest are cut to the same length, as long
+    // as fits.
     let width = |cap: usize| -> usize {
         tabs.iter().enumerate().map(|(i, (label, unread))| markup::columns(&format!(" {} ", i + 1)) + markup::columns(label).min(cap) + markup::columns(unread) + 2).sum()
     };
-    let cap = (3..=48).rev().find(|&cap| width(cap) <= usize::from(area.width)).unwrap_or(3);
+    let cap = (3..=80).rev().find(|&cap| width(cap) <= usize::from(area.width)).unwrap_or(3);
     let mut x = area.x;
     for (i, (label, unread)) in tabs.iter().enumerate() {
         let text = format!(" {} {}{unread} ", i + 1, truncate(label, cap));
@@ -375,9 +375,9 @@ fn location(app: &App) -> (Vec<String>, Vec<Span<'static>>) {
                 crumbs
             } else if let Some(g) = &app.tab.gallery {
                 meta.insert(0, plural(g.files.len(), "file"));
-                vec![site(), uri, truncate(&subject, 40), "Files".into()]
+                vec![site(), uri, truncate(&subject, 60), "Files".into()]
             } else {
-                vec![site(), uri, truncate(&subject, 48)]
+                vec![site(), uri, subject]
             }
         }
         View::Watched => {
@@ -913,6 +913,15 @@ pub(crate) fn truncate(s: &str, width: usize) -> String {
 }
 
 /// `s` padded with spaces to `width` cells (as drawn); never cut.
+/// `area` at most `width` wide (`text_width`; 0: as it is), centered: long lines are hard
+/// to read.
+fn readable(width: u16, area: Rect) -> Rect {
+    match width {
+        w if w > 0 && area.width > w => Rect { x: area.x + (area.width - w) / 2, width: w, ..area },
+        _ => area,
+    }
+}
+
 pub(crate) fn pad(s: &str, width: usize) -> String {
     format!("{s}{}", " ".repeat(width.saturating_sub(markup::columns(s))))
 }

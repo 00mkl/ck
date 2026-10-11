@@ -16,11 +16,7 @@ pub(super) fn draw_thread(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     };
     let th = theme();
-    // At most `thread_width` wide, centered: long lines are hard to read.
-    let area = match app.thread_width {
-        w if w > 0 && area.width > w => Rect { x: area.x + (area.width - w) / 2, width: w, ..area },
-        _ => area,
-    };
+    let area = super::readable(app.text_width, area);
     // A taller or shorter screen: the selection stays in view.
     if t.viewport != area.height as usize {
         t.viewport = area.height as usize;

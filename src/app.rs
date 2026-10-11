@@ -480,8 +480,8 @@ pub struct App {
     pub pages: Option<crate::pages::Pages>,
     /// `scroll_margin`: where the selected post sits while reading (a fraction of the screen).
     pub scroll_margin: f32,
-    /// `thread_width`: a thread's most columns (0: the screen's).
-    pub thread_width: u16,
+    /// `text_width`: the most columns threads and catalogs take (0: the screen's).
+    pub text_width: u16,
     /// The config's `[[filter]]` tables, as last read or written (`filters` is made from them).
     pub filter_cfgs: Vec<crate::filter::FilterConfig>,
     /// `hidden_words`: posts with one are hidden everywhere.
@@ -489,6 +489,8 @@ pub struct App {
     /// The filter just added (and where): `u` as the next key takes it back.
     pub filter_undo: Option<filters::Undo>,
     footer: Footer,
+    /// An answer for a tab that isn't shown is being handled.
+    behind: bool,
     pub images: Images,
     /// Reverse image search engines (`R`), and the panel choosing one.
     pub image_search: Vec<crate::config::ImageSearch>,
@@ -647,12 +649,13 @@ impl App {
             hidden_words: cfg.hidden_words.clone(),
             filter_cfgs: cfg.filters.clone(),
             scroll_margin: if cfg.scroll_margin.is_finite() { cfg.scroll_margin.clamp(0.0, 0.5) } else { 0.3 },
-            thread_width: cfg.thread_width,
+            text_width: cfg.text_width,
             pages: crate::pages::Pages::default_dir()
                 .filter(|_| !cfg!(test) && cfg.page_cache_mb > 0)
                 .map(|d| crate::pages::Pages::new(d, cfg.page_cache_mb.saturating_mul(1024 * 1024))),
             filter_undo: None,
             footer: Footer::default(),
+            behind: false,
             popup: None,
             images: Images::new(picker, {
                 let tx = tx.clone();
@@ -1420,6 +1423,9 @@ impl App {
 
     /// Open a thread from Watched or History, switching site and board as needed.
     fn open_key(&mut self, key: &ThreadKey) {
+        if self.show_open(key) {
+            return;
+        }
         let back = Some(self.tab.place_view());
         if self.open_thread_key(key, Opening::default()) {
             self.tab.return_to = back;
@@ -1764,6 +1770,11 @@ impl App {
                 }
             }
             (View::Catalog, Some(i)) => {
+                let Some(p) = self.tab.catalog.posts().get(i) else { return };
+                let key = self.tab.catalog.key(p);
+                if self.show_open(&key) {
+                    return;
+                }
                 let Some(p) = self.tab.catalog.posts().get(i) else { return };
                 // On an overboard the thread lives on its own board.
                 self.open_thread_at(self.find_board(&self.tab.catalog.board_of(p)), p.no, Opening::default());
