@@ -881,6 +881,11 @@ fn filters_and_hiding() {
     app.pick_row(View::Catalog, 1);
     app.act(Action::Hide);
     assert_eq!(app.visible_catalog(), [1]);
+    // u right after takes it back.
+    app.on_key(KeyEvent::from(KeyCode::Char('u')));
+    assert_eq!(app.visible_catalog(), [1, 2]);
+    app.pick_row(View::Catalog, 1);
+    app.act(Action::Hide);
     assert!(app.store.hidden_on("a", "x").contains(&3));
     // Drawn, the thread now in its place is the selection: Z shows them all, keeping it.
     draw_at(&mut app, 100, 30);
@@ -2300,7 +2305,7 @@ fn x_filters_posts_like_the_selected_one() {
     // Applied at once: both posts by the name collapse.
     let t = app.tab.thread.as_ref().unwrap();
     assert!(t.marks.why_hidden(1).is_some() && t.marks.why_hidden(3).is_some() && t.marks.why_hidden(2).is_none());
-    assert!(app.footer.get().unwrap().text.contains("Hiding Named !Trip (2 here) · u undoes"));
+    assert!(app.footer.get().unwrap().text.contains("Hiding Named !Trip (2 posts here) · u undoes"));
     // u takes it back, from the file too.
     app.on_key(KeyEvent::from(KeyCode::Char('u')));
     assert_eq!(config_text(&app), FILTER_CONFIG);
@@ -3437,7 +3442,7 @@ fn hidden_words_hide_posts_everywhere() {
     app.on_key(KeyEvent::from(KeyCode::Char('a')));
     type_text(&mut app, "crypto");
     app.on_key(KeyEvent::from(KeyCode::Enter));
-    assert!(app.footer.get().unwrap().text.starts_with("Hiding posts with \"crypto\" (2 here)"), "{:?}", app.footer.get());
+    assert!(app.footer.get().unwrap().text.starts_with("Hiding posts with \"crypto\" (2 posts here)"), "{:?}", app.footer.get());
     let hidden = |app: &App| app.tab.thread.as_ref().unwrap().marks.all_hidden();
     let label = Some(Hidden::ByFilter("hidden word: crypto".into()));
     assert_eq!(hidden(&app), [None, label.clone(), label.clone(), None]);
@@ -4751,7 +4756,7 @@ fn taking_back_what_couldnt_be_written_writes_nothing() {
     unwritable(&mut app, dir.path());
     app.add_hidden_word("spam");
     drawn(&mut app);
-    app.undo_filter();
+    app.undo();
     assert_eq!(footer(&app), ("Posts with \"spam\" aren't hidden now".into(), false), "it was never written, so nothing failed to be");
 }
 
@@ -5801,6 +5806,58 @@ fn the_command_line_runs_commands_and_remembers_them() {
     app.on_key(KeyEvent::from(KeyCode::Esc));
     enter(&mut app, "q");
     assert!(app.quit);
+}
+
+#[test]
+fn places_complete_after_e_and_tabnew_and_home_is_one() {
+    let mut app = local_app();
+    for (typed, completed) in [("tabnew a/", "tabnew a/x"), ("e b", "e b/"), ("e hi", "e history")] {
+        app.act(Action::Goto);
+        type_text(&mut app, typed);
+        app.on_key(KeyEvent::from(KeyCode::Tab));
+        assert_eq!(app.goto_text(), Some(completed));
+        app.on_key(KeyEvent::from(KeyCode::Esc));
+    }
+    app.goto_str("a/x");
+    app.goto_str("home");
+    assert_eq!(app.tab.view(), View::Sites);
+}
+
+#[test]
+fn u_right_after_puts_back_what_x_removed() {
+    let (mut app, _) = history_app();
+    let nos = |app: &App| app.store.history.iter().map(|v| v.key.no).collect::<Vec<_>>();
+    let before = nos(&app);
+    app.pick_row(View::History, 1);
+    app.act(Action::Remove);
+    assert_eq!(nos(&app).len(), 2);
+    app.on_key(KeyEvent::from(KeyCode::Char('u')));
+    assert_eq!(nos(&app), before);
+    // Only right after: another key keeps the change.
+    app.act(Action::Remove);
+    app.on_key(KeyEvent::from(KeyCode::Char('j')));
+    app.on_key(KeyEvent::from(KeyCode::Char('u')));
+    assert_eq!(nos(&app).len(), 2);
+}
+
+#[test]
+fn a_subject_from_the_text_ends_in_an_ellipsis_when_cut() {
+    let post = |text: &str| Post { body: vec![Line::raw(text.to_string())], ..Default::default() };
+    assert_eq!(thread_subject(&[post("short and whole")]), "short and whole");
+    let cut = thread_subject(&[post(&"word ".repeat(30))]);
+    assert!(cut.ends_with("word…") && cut.chars().count() <= 81, "{cut}");
+}
+
+#[test]
+fn board_tabs_name_their_site_when_tabs_are_on_several() {
+    let mut app = local_app();
+    app.goto_str("a/x");
+    app.tabs.push(Tab::new(0, Instant::now()));
+    app.switch_tab(1);
+    app.goto_str("a/xy");
+    assert_eq!((app.tab_label(0), app.tab_label(1)), ("/x/".to_string(), "/xy/".to_string()));
+    app.goto_str("b/y");
+    assert_eq!((app.tab_label(0), app.tab_label(1)), ("a /x/".to_string(), "b /y/".to_string()));
 }
 
 /// A prefix waiting a moment shows what can follow it; at once, nothing (`gg` typed fast

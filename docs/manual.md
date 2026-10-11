@@ -137,14 +137,14 @@ ones for where you are.
 |------|--------|
 | `1`–`9` | open a favorite board (home screen) |
 | `*`  | favorite board on / off (also in a catalog) [`favorite`] |
-| `x`  | on the home screen: take a favorite off, forget a recent board, hide / show a site [`remove`] |
+| `x`  | on the home screen: take a favorite off, forget a recent board, hide / show a site (`u` right after undoes it) [`remove`] |
 | `. a` | add a site from a link to any page of it [`add_site`] |
 
 **Watched, History, Saved**
 
 | key  | action |
 |------|--------|
-| `x`  | remove the entry; in Saved, press it twice to delete the copy [`remove`] |
+| `x`  | remove the entry (`u` right after puts it back); in Saved, press it twice to delete the copy [`remove`] |
 | `y`  | copy the subject and link [`copy`] |
 | `. T` / `. F` | open the thread in a new tab / follow it as a general [`new_tab`, `follow`] |
 
@@ -307,7 +307,8 @@ one brings it back.
 `. T` opens the selected thread in a new tab, next to the current one (in a thread, the
 quoted thread `enter` would go to). Each tab has its own place: view, board, catalog,
 thread, and jump trail. The tabs show as chips under the top bar when there's more than
-one, their titles whole while they fit and the longest cut first when they don't; `]` and `[` move between them (or click one), `ctrl-w` closes one (not
+one, their titles whole while they fit and the longest cut first when they don't (a board
+names its site too when the tabs are on more than one: `2ch /b/`); `]` and `[` move between them (or click one), `ctrl-w` closes one (not
 the last). A tab on a watched thread counts the posts it has gained since you read it,
 like `2 Thread subject (5)`. Up to 9. Only the tab on screen refreshes its thread in the background;
 another tab's thread is refreshed when you come back to it (watched threads are refreshed
@@ -353,9 +354,10 @@ nothing else is being typed starts this by itself), or type a short form. A site
 | `4chan/g`, `4chan/g/123` | a board, a thread                                |
 | `lainchan/λ/42#43`     | a thread, with post 43 selected                    |
 | `>>>/g/123`            | a cross-board quote: thread 123 on /g/             |
+| `home`                 | the home screen (`/home/` is a board called that)  |
 | `saved`, `watched`, `history` | that list                                   |
 
-`tab` completes commands, site and board names. In a one-line box (`:`, `/`, the fields of Settings
+`tab` completes commands, site and board names (also after `:e` and `:tabnew`). In a one-line box (`:`, `/`, the fields of Settings
 and the filter maker) ctrl-w takes back a word and ctrl-u the whole line. `esc` goes back to where you
 were (from Settings: to the place under them). `ck URL` (or `ck 4chan/g`) starts there.
 
@@ -389,7 +391,7 @@ menus' letters after them.
 
 ## Filters and hiding
 
-`. H` hides the selected catalog thread or thread post; `c Z` shows hidden ones again
+`. H` hides the selected catalog thread or thread post (`u` right after takes it back); `c Z` shows hidden ones again
 (dimmed and marked) so they can be unhidden with another `. H`. Hidden posts collapse to
 one line, so replies to them still make sense. They're marked just "hidden", not why
 (that would show what a filter or hidden word hides); `. H` on one says why. Until `c Z`

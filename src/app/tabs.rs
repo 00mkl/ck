@@ -251,7 +251,12 @@ impl App {
                 Some(th) => thread_subject(&th.posts),
                 None => format!("/{board}/{}", t.pending_thread.as_ref().map_or(0, |k| k.no)),
             },
-            View::Catalog => format!("/{board}/"),
+            // With boards or threads of more than one site in tabs, a board says which (4chan's
+            // /b/ isn't 2ch's).
+            View::Catalog => match self.sites.get(t.site).filter(|_| (0..self.tabs.len()).map(|j| self.tab_at(j)).any(|o| matches!(o.view(), View::Catalog | View::Thread) && o.site != t.site)) {
+                Some(s) => format!("{} /{board}/", s.cfg.name),
+                None => format!("/{board}/"),
+            },
             View::Boards => self.sites.get(t.site).map_or(String::new(), |s| s.cfg.name.clone()),
             View::Search => t.search.as_ref().map_or_else(|| "Search".into(), |s| format!("Search: {}", s.query)),
             View::Sites => "Sites".into(),

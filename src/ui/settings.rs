@@ -12,6 +12,9 @@ pub(super) fn draw_settings(f: &mut Frame, app: &mut App, area: Rect) {
     let offset = if at + 1 == rows.len() { total } else { at + 2 }.saturating_sub(area.height as usize);
     app.drawn.body = Some(Hit::Settings { area, offset });
     let items: Vec<_> = settings().collect();
+    // The values as wide as the widest, when the screen leaves the hints some room; else 34.
+    let widest = items.iter().map(|item| markup::columns(&(item.value)(app)) + 2).max().unwrap_or(0);
+    let value_w = widest.min((area.width as usize).saturating_sub(PAD as usize + 1 + 18 + 40)).max(34);
     for (row, r) in rows.into_iter().enumerate().skip(offset) {
         let y = area.y + (row - offset) as u16;
         if y >= area.bottom() {
@@ -24,10 +27,10 @@ pub(super) fn draw_settings(f: &mut Frame, app: &mut App, area: Rect) {
                 let (label, hint) = (item.label, item.hint);
                 paint_row(f, Rect::new(area.x, y, area.width, 1), None, i == selected, false);
                 let value = (item.value)(app);
-                let hint_w = (area.width as usize).saturating_sub(PAD as usize + 1 + 18 + 34);
+                let hint_w = (area.width as usize).saturating_sub(PAD as usize + 1 + 18 + value_w);
                 let line = Line::from(vec![
                     Span::styled(pad(label, 18), Style::new().fg(t.text)),
-                    Span::styled(pad(&truncate(&value, 32), 34), bold(t.text)),
+                    Span::styled(pad(&truncate(&value, value_w.saturating_sub(2)), value_w), bold(t.text)),
                     Span::styled(if hint_w >= 16 { truncate(hint, hint_w) } else { String::new() }, dim()),
                 ]);
                 put(f, area.x + PAD, y, area.width.saturating_sub(PAD + 1), line);

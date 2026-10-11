@@ -7,6 +7,7 @@ use ratatui::widgets::ListState;
 
 use super::settings::SettingsPopup;
 use super::{App, Part, Popup, View, edit_text, list_move};
+use super::undo::Undo;
 use crate::config::FilterEdit;
 use crate::filter::{Field, FilterAction, FilterConfig, Filters};
 use crate::model::Post;
@@ -30,6 +31,17 @@ impl Reach {
     }
 }
 
+/// How much of what's shown a new filter catches: " (3 posts, 1 thread here)".
+fn caught_here(posts: usize, threads: usize) -> String {
+    let n = |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+    match (posts, threads) {
+        (0, 0) => String::new(),
+        (p, 0) => format!(" ({} here)", n(p, "post")),
+        (0, t) => format!(" ({} here)", n(t, "thread")),
+        (p, t) => format!(" ({}, {} here)", n(p, "post"), n(t, "thread")),
+    }
+}
+
 /// A filter that would catch the selected post, by one thing about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Candidate {
@@ -38,13 +50,6 @@ pub struct Candidate {
     pub field: Field,
     pub pattern: String,
     pub label: String,
-}
-
-/// What `u` right after takes back: a filter added (at its place), or a hidden word; and
-/// whether it was written to the config (so taking it back is written too).
-pub enum Undo {
-    Filter(usize, FilterConfig, bool),
-    Word(String, bool),
 }
 
 /// `X`: a filter like the selected post, being made.
@@ -399,15 +404,10 @@ impl App {
             FilterAction::Hide => "Hiding",
             FilterAction::Highlight => "Highlighting",
         };
-        let here = match (posts, threads) {
-            (0, 0) => String::new(),
-            (p, 0) => format!(" ({p} here)"),
-            (0, t) => format!(" ({t} here)"),
-            (p, t) => format!(" ({p} posts, {t} threads here)"),
-        };
+        let here = caught_here(posts, threads);
         let done = format!("{verb} {}{here}", f.label());
         let written = self.say_saved(&done, saved.map(|()| format!("{done} · u undoes; Settings › Filters lists them")));
-        self.filter_undo = Some(Undo::Filter(self.filter_cfgs.len() - 1, f, written));
+        self.undo = Some(Undo::Filter(self.filter_cfgs.len() - 1, f, written));
     }
 
     /// Hide posts with `word`, everywhere; `u` right after takes it back.
@@ -425,15 +425,10 @@ impl App {
         let label = format!("hidden word: {word}");
         let posts = self.tab.thread.as_ref().map_or(0, |t| t.marks.hidden_by(&label));
         let threads = self.tab.catalog.marks.hidden_by(&label);
-        let here = match (posts, threads) {
-            (0, 0) => String::new(),
-            (p, 0) => format!(" ({p} here)"),
-            (0, t) => format!(" ({t} here)"),
-            (p, t) => format!(" ({p} posts, {t} threads here)"),
-        };
+        let here = caught_here(posts, threads);
         let done = format!("Hiding posts with \"{word}\"{here}");
         let written = self.say_saved(&done, saved.map(|()| format!("{done} · u undoes; Settings › Filters › Hidden words lists them")));
-        self.filter_undo = Some(Undo::Word(word, written));
+        self.undo = Some(Undo::Word(word, written));
     }
 
     /// Stop hiding posts with a word, and `write` the config.
@@ -457,17 +452,12 @@ impl App {
         .map(drop)
     }
 
-    /// `u` right after adding a filter or a hidden word: take it back.
-    pub fn undo_filter(&mut self) {
-        let (i, f, written) = match self.filter_undo.take() {
-            Some(Undo::Filter(i, f, written)) => (i, f, written),
-            Some(Undo::Word(w, written)) => return self.remove_hidden_word(&w, written),
-            None => return,
-        };
-        if self.filter_cfgs.get(i) != Some(&f) {
+    /// Take back filter `f`, just added at `i` (and `written` to the config).
+    pub(super) fn take_back_filter(&mut self, i: usize, f: &FilterConfig, written: bool) {
+        if self.filter_cfgs.get(i) != Some(f) {
             return;
         }
-        let saved = if written { self.write_filters(FilterEdit::Remove(i, &f)) } else { Ok(()) };
+        let saved = if written { self.write_filters(FilterEdit::Remove(i, f)) } else { Ok(()) };
         self.filter_cfgs.remove(i);
         self.apply_filters();
         let done = format!("Took the filter {} back", f.label());

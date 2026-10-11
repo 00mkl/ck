@@ -256,13 +256,12 @@ fn draw_tab_row(f: &mut Frame, app: &mut App, area: Rect) {
 fn draw_app_bar(f: &mut Frame, app: &App, area: Rect) {
     let t = theme();
     fill(f, area, t.bar);
-    let (crumbs, mut meta) = location(app);
+    let (mut crumbs, mut meta) = location(app);
     let mut spans = vec![Span::styled(" ck ", bold(t.on_primary).bg(t.primary)), Span::raw(" ")];
     let n = crumbs.len();
-    let before: usize = 5 + crumbs.iter().take(n.saturating_sub(1)).map(|c| markup::columns(c) + 5).sum::<usize>();
-    // The facts on the right give way (the counts first, then the chips) before the last
-    // crumb is cut to less than a few letters: where you are matters more.
-    let wanted = before + crumbs.last().map_or(0, |c| markup::columns(c).min(12));
+    // The facts on the right give way (the counts first, then the chips) before the crumbs
+    // are cut to less than a few letters each: where you are matters more.
+    let wanted = 5 + crumbs.iter().take(n.saturating_sub(1)).map(|c| markup::columns(c).min(24) + 5).sum::<usize>() + crumbs.last().map_or(0, |c| markup::columns(c).min(12));
     while !meta.is_empty() && usize::from(area.width).saturating_sub(markup::spans_columns(&meta) + 2) < wanted {
         // The counts are the last span but the trailing space.
         let counts = meta.len().saturating_sub(2);
@@ -274,13 +273,27 @@ fn draw_app_bar(f: &mut Frame, app: &App, area: Rect) {
     }
     let meta_w = cells(markup::spans_columns(&meta));
     let left_w = area.width.saturating_sub(meta_w + 2);
-    // The last crumb (the most specific) gives way, with an ellipsis, when space is short.
+    // When space is short the longest crumb (a thread's subject) gives way first, to a few
+    // words, with an ellipsis; then the last (the most specific).
+    let room = usize::from(left_w).saturating_sub(5 + 5 * n.saturating_sub(1));
+    let over = |cs: &[String]| cs.iter().map(|c| markup::columns(c)).sum::<usize>().saturating_sub(room);
+    let longest = crumbs.iter().enumerate().max_by_key(|(_, c)| markup::columns(c)).map(|(i, _)| i);
+    let excess = over(&crumbs);
+    if excess > 0
+        && let Some(c) = longest.and_then(|i| crumbs.get_mut(i))
+    {
+        *c = truncate(c, markup::columns(c).saturating_sub(excess).max(24));
+    }
+    let excess = over(&crumbs);
+    if let Some(c) = crumbs.last_mut().filter(|_| excess > 0) {
+        *c = truncate(c, markup::columns(c).saturating_sub(excess));
+    }
     for (i, c) in crumbs.into_iter().enumerate() {
         if i > 0 {
             spans.push(Span::styled("  ›  ", dim()));
         }
         if i + 1 == n {
-            spans.push(Span::styled(truncate(&c, (left_w as usize).saturating_sub(before)), bold(t.on_bar)));
+            spans.push(Span::styled(c, bold(t.on_bar)));
         } else {
             spans.push(Span::styled(c, Style::new().fg(t.on_bar)));
         }
@@ -369,13 +382,13 @@ fn location(app: &App) -> (Vec<String>, Vec<Span<'static>>) {
                     Some(id) => format!("Posts by ID:{}", truncate(id, 16)),
                     None => format!("Conversation of No.{}", c.anchor),
                 };
-                return_crumbs = Some(vec![site(), uri.clone(), truncate(&subject, 24), what]);
+                return_crumbs = Some(vec![site(), uri.clone(), subject.clone(), what]);
             }
             if let Some(crumbs) = return_crumbs {
                 crumbs
             } else if let Some(g) = &app.tab.gallery {
                 meta.insert(0, plural(g.files.len(), "file"));
-                vec![site(), uri, truncate(&subject, 60), "Files".into()]
+                vec![site(), uri, subject, "Files".into()]
             } else {
                 vec![site(), uri, subject]
             }

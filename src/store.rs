@@ -528,6 +528,15 @@ impl Store {
         true
     }
 
+    /// Watch `w` again, at `i`, as it was when it was taken off (unless it's watched again
+    /// already).
+    pub fn rewatch(&mut self, i: usize, w: Watched) -> Changed<()> {
+        if self.watched(&w.key).is_none() {
+            self.watched.insert(i.min(self.watched.len()), w);
+        }
+        Changed::new(())
+    }
+
     pub fn unwatch(&mut self, key: &ThreadKey) -> Changed<()> {
         self.watched.retain(|w| &w.key != key);
         Changed::new(())

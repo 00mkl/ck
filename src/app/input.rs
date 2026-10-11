@@ -86,8 +86,8 @@ impl App {
                 true
             }
             Down(MouseButton::Left) if fresh => {
-                // `u` takes back a filter only right after it's added.
-                self.filter_undo = None;
+                // `u` takes back a change only right after it.
+                self.undo = None;
                 match self.drawn().and_then(|d| d.tabs.iter().find(|(r, _)| r.contains(pos)).map(|&(_, i)| i)).filter(|_| tabs) {
                     Some(i) => self.show_tab(i),
                     None => left(self, ev, now),
@@ -250,14 +250,14 @@ impl App {
             self.quit = true;
             return;
         }
-        // `u` right after adding a filter takes it back; any other key keeps it.
-        if let Some(undo) = self.filter_undo.take()
+        // `u` right after a change takes it back; any other key keeps it.
+        if let Some(undo) = self.undo.take()
             && self.modal().is_none()
             && key.code == KeyCode::Char('u')
             && key.modifiers == KeyModifiers::NONE
         {
-            self.filter_undo = Some(undo);
-            self.undo_filter();
+            self.undo = Some(undo);
+            self.undo();
             return;
         }
         match self.modal() {
