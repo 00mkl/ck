@@ -5,6 +5,9 @@
 use super::{App, View};
 use crate::keys::Action;
 
+/// The commands that take a place, whose argument completes as one.
+pub(super) const PLACE_COMMANDS: &[&str] = &["e", "edit", "o", "open", "tabnew", "tabe", "tabedit"];
+
 /// Lines kept of each kind.
 const KEPT: usize = 100;
 

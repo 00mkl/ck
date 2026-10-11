@@ -7,9 +7,11 @@ use crate::config::SiteConfig;
 use crate::model::Board;
 use crate::route::{self, SiteInfo, Target};
 
-/// The lists, by name (before boards that happen to be called that).
+/// The home screen and the lists, by name (before boards that happen to be called that:
+/// `/home/` is the board).
 fn list_named(input: &str) -> Option<View> {
     match input.trim().to_lowercase().as_str() {
+        "home" | "sites" => Some(View::Sites),
         "watched" => Some(View::Watched),
         "history" => Some(View::History),
         "saved" => Some(View::Saved),
@@ -166,20 +168,25 @@ impl App {
         if let Some((prefix, names)) = commands.clone().filter(|_| text.contains(' ')) {
             return self.complete_from(&prefix, text.strip_prefix(prefix.as_str()).unwrap_or_default(), &names, false);
         }
+        // After a command that takes a place (`:e`, `:tabnew`), the place completes.
+        let (lead, text) = match text.split_once(' ') {
+            Some((word, place)) if super::command::PLACE_COMMANDS.contains(&word) => (format!("{word} "), place.trim_start().to_string()),
+            _ => (String::new(), text),
+        };
         let (prefix, partial, site) = match text.rsplit_once('/') {
             Some((head, tail)) => {
                 let name = head.trim_start_matches('/');
                 let site = self.sites.iter().position(|s| s.cfg.name.eq_ignore_ascii_case(name)).or_else(|| head.is_empty().then_some(self.tab.site));
-                (format!("{head}/"), tail.to_string(), site)
+                (format!("{lead}{head}/"), tail.to_string(), site)
             }
-            None => (String::new(), text.clone(), None),
+            None => (lead.clone(), text.clone(), None),
         };
         let boards = |site: usize| -> Vec<String> { self.known_boards(site).unwrap_or_default().into_iter().map(|b| b.uri).collect() };
         let candidates: Vec<String> = match site {
             Some(site) => boards(site),
             None => {
-                let lists = ["saved", "watched", "history"].map(String::from);
-                let commands = commands.map(|(_, names)| names).unwrap_or_default();
+                let lists = ["home", "saved", "watched", "history"].map(String::from);
+                let commands = commands.filter(|_| lead.is_empty()).map(|(_, names)| names).unwrap_or_default();
                 self.sites.iter().map(|s| s.cfg.name.clone()).chain(boards(self.tab.site)).chain(lists).chain(commands).collect()
             }
         };

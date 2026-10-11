@@ -69,9 +69,11 @@ mod search;
 mod session;
 mod tab;
 mod tabs;
+mod undo;
 mod settings;
 mod sites;
 pub use filters::{AddFilter, EDIT_ROWS, EditRow, problem as filters_problem, with_text as filters_with_text};
+use undo::Undo;
 pub use focus::{Hints, Menu, MenuItem};
 #[cfg(test)]
 pub use focus::HintTo;
@@ -487,7 +489,7 @@ pub struct App {
     /// `hidden_words`: posts with one are hidden everywhere.
     pub hidden_words: Vec<String>,
     /// The filter just added (and where): `u` as the next key takes it back.
-    pub filter_undo: Option<filters::Undo>,
+    pub undo: Option<undo::Undo>,
     footer: Footer,
     /// An answer for a tab that isn't shown is being handled.
     behind: bool,
@@ -653,7 +655,7 @@ impl App {
             pages: crate::pages::Pages::default_dir()
                 .filter(|_| !cfg!(test) && cfg.page_cache_mb > 0)
                 .map(|d| crate::pages::Pages::new(d, cfg.page_cache_mb.saturating_mul(1024 * 1024))),
-            filter_undo: None,
+            undo: None,
             footer: Footer::default(),
             behind: false,
             popup: None,
@@ -1195,7 +1197,8 @@ impl App {
         let (no, hidden) = (key.no, self.rehide(|a| a.store.toggle_hidden(&key.site, &key.board, key.no)));
         self.save_now();
         let show = self.keys.how(Action::ShowHidden);
-        self.info(if hidden { format!("Hid {what} {no} ({show} shows hidden ones)") } else { format!("Unhid {what} {no}") });
+        self.info(if hidden { format!("Hid {what} {no} · u undoes; {show} shows hidden ones") } else { format!("Unhid {what} {no} · u undoes") });
+        self.undo = Some(Undo::Hidden(key));
     }
 
     /// `Z`: show hidden threads and posts (dimmed), or leave them out again.
@@ -1676,12 +1679,18 @@ impl App {
                 Some(SiteRow::Favorite(i)) => {
                     let f = self.favorites.remove(i);
                     self.save_favorites(&format!("/{}/ off the favorites", f.board));
+                    self.undo = Some(Undo::Favorite(i, f));
                 }
                 Some(SiteRow::Recent(i)) => {
-                    self.store.recent_boards.remove(i);
+                    let b = self.store.recent_boards.remove(i);
                     self.save_now();
+                    self.info("Took the board off the recent ones · u undoes");
+                    self.undo = Some(Undo::Recent(i, b));
                 }
-                Some(SiteRow::Site(i)) => self.toggle_site_hidden(i),
+                Some(SiteRow::Site(i)) => {
+                    self.toggle_site_hidden(i);
+                    self.undo = Some(Undo::Site(i));
+                }
                 _ => {}
             }
             return;
@@ -1689,13 +1698,16 @@ impl App {
         let Some(i) = self.selected_index() else { return };
         match self.tab.view() {
             View::Watched => {
-                let Some(key) = self.store.all_watched().get(i).map(|w| w.key.clone()) else { return };
+                let Some(w) = self.store.all_watched().get(i).cloned() else { return };
                 // As w does: its (You) marks go from every tab.
-                self.rehide(|a| a.store.unwatch(&key));
-                self.info(format!("Stopped watching thread {}", key.no));
+                self.rehide(|a| a.store.unwatch(&w.key));
+                self.info(format!("Stopped watching thread {} · u undoes", w.key.no));
+                self.undo = Some(Undo::Watched(i, Box::new(w)));
             }
             View::History => {
-                self.store.history.remove(i);
+                let v = self.store.history.remove(i);
+                self.info(format!("Took thread {} off History · u undoes", v.key.no));
+                self.undo = Some(Undo::Visit(i, v));
             }
             View::Saved => {
                 let Some(key) = self.store.saved.get(i).map(|m| m.key.clone()) else { return };
@@ -1978,10 +1990,20 @@ fn plural_posts(n: usize) -> String {
     if n == 1 { "1 post".into() } else { format!("{n} posts") }
 }
 
-/// A thread's subject for lists: its subject, or the start of the OP's text.
+/// A thread's subject for lists: its subject, or the start of the OP's text (its first 80
+/// characters or so, cut after a word and ending in "…" when there's more).
 pub fn thread_subject(posts: &[Post]) -> String {
+    const MOST: usize = 80;
     let Some(op) = posts.first() else { return String::new() };
-    op.subject.clone().unwrap_or_else(|| op.plain_text().chars().take(80).collect())
+    if let Some(s) = &op.subject {
+        return s.clone();
+    }
+    let text = op.plain_text().trim();
+    let Some((cut, _)) = text.char_indices().nth(MOST) else { return text.to_string() };
+    let head = text.get(..cut).unwrap_or(text);
+    // After the last whole word, unless that leaves little.
+    let head = head.rsplit_once(' ').map(|(h, _)| h).filter(|h| h.chars().count() > MOST / 2).unwrap_or(head);
+    format!("{}…", head.trim_end())
 }
 
 pub fn on_path(program: &str) -> bool {

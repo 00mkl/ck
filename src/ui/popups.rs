@@ -364,6 +364,13 @@ pub(super) fn draw_add_filter(f: &mut Frame, app: &mut App) {
             spread(value, vec![Span::styled(key.to_string(), dim())], width as usize)
         };
         let typed = |text: &String| vec![Span::styled(text.clone(), bold(t.text)), Span::styled("▏", Style::new().fg(t.primary))];
+        // A word is hidden everywhere, with no label: what, where and the label are a filter's.
+        if let Some(word) = &a.word {
+            return vec![
+                row("Word", typed(word), "enter: hide it everywhere"),
+                Line::styled("Any post with it is hidden, on every board (Settings › Filters › Hidden words).", dim()),
+            ];
+        }
         vec![
             row("Do", vec![Span::styled(verb, bold(t.text))], other),
             row("Where", vec![Span::styled(reach, bold(t.text))], "s: change"),
@@ -372,14 +379,8 @@ pub(super) fn draw_add_filter(f: &mut Frame, app: &mut App) {
                 None => row("Label", vec![Span::styled(label, bold(t.text))], "e: edit"),
             },
             // `w`: a word to hide everywhere instead.
-            match &a.word {
-                Some(word) => row("Word", typed(word), "enter: hide it everywhere"),
-                None => row("", Vec::new(), "w: a word from it…"),
-            },
-            match &a.word {
-                Some(_) => Line::styled("Any post with it is hidden, on every board (Settings › Filters › Hidden words).", dim()),
-                None => Line::styled("Saved in the config as a [[filter]]; u right after takes it back.", dim()),
-            },
+            row("", Vec::new(), "w: a word from it…"),
+            Line::styled("Saved in the config as a [[filter]]; u right after takes it back.", dim()),
         ]
     };
     list_panel(f, (72, &format!("Filter like No.{}", a.post), "enter add · esc cancel"), &mut a.list, &a.candidates, ("Nothing in it to filter on but its words: type one", true), foot, |_, c, width| {
