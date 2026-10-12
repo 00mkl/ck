@@ -529,8 +529,14 @@ impl App {
             }
             return Some(SettingsPopup::Keys { list, capture: None, filter, typing });
         }
-        // The first command the filter leaves, selected.
-        let first = |app: &Self, filter: &str| ListState::default().with_selected(app.key_rows_matching(filter).iter().position(Result::is_ok));
+        // The first command the filter leaves selected: one whose key or name has it, else
+        // the first.
+        let first = |app: &Self, filter: &str| {
+            let rows = app.key_rows_matching(filter);
+            let needle = filter.to_lowercase();
+            let named = rows.iter().position(|r| r.is_ok_and(|a| !needle.is_empty() && format!("{} {}", app.keys.label(a), a.name()).to_lowercase().contains(&needle)));
+            ListState::default().with_selected(named.or_else(|| rows.iter().position(Result::is_ok)))
+        };
         if typing {
             return match key.code {
                 KeyCode::Esc => Some(SettingsPopup::Keys { list: first(self, ""), capture: None, filter: String::new(), typing: false }),

@@ -6040,3 +6040,41 @@ fn the_show_menu_offers_only_what_changes_something() {
     press(&mut app, "M");
     assert_eq!(app.footer.get().map(|f| f.text.as_str()), Some("No post here has a file"));
 }
+
+#[test]
+fn esc_clears_the_settings_filter_then_closes_them() {
+    let mut app = local_app();
+    app.goto_str("a/x");
+    app.act(Action::Settings);
+    app.on_key(KeyEvent::from(KeyCode::Char('/')));
+    type_text(&mut app, "lines");
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    // Name matches first: enter changes Preview lines, not Text width.
+    let before = app.text_width;
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert_eq!((app.text_width, app.catalog_lines), (before, Some(1)));
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert_eq!((app.tab.view(), app.filter(View::Settings)), (View::Settings, ""));
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert_eq!(app.tab.view(), View::Catalog);
+}
+
+#[test]
+fn favorites_say_how_many_of_their_threads_are_new() {
+    let mut app = local_app();
+    let fav = crate::app::home::BoardRef { site: "a".into(), board: "x".into() };
+    // Not loaded yet: nothing to compare with.
+    assert_eq!(app.store.unseen("a", "x", &[1, 2]), None);
+    app.goto_str("a/x");
+    app.handle(answer(app.tab.req().unwrap(), App::catalog_arrived, Ok((1..=2).map(|no| Post { no, ..Default::default() }).collect())));
+    assert_eq!(app.store.unseen("a", "x", &[1, 2, 3, 4]), Some(2));
+    // The home screen shows the count; opening the board again clears it.
+    app.favorites = vec![fav.clone()];
+    app.favorites_new.insert(fav.key(), 2);
+    app.tab.navigate(View::Sites);
+    let screen = format!("{:?}", draw_at(&mut app, 100, 20));
+    assert!(screen.contains("2 new threads"), "{screen}");
+    app.goto_str("a/x");
+    app.handle(answer(app.tab.req().unwrap(), App::catalog_arrived, Ok((1..=4).map(|no| Post { no, ..Default::default() }).collect())));
+    assert!(app.favorites_new.is_empty());
+}

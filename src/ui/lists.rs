@@ -50,9 +50,15 @@ pub(super) fn draw_sites(f: &mut Frame, app: &mut App, area: Rect) {
                     Span::styled(col(&format!("{} /{}/", b.site, b.board), 16), bold(t.text)),
                     Span::styled(app.board_title(b).to_string(), dim()),
                 ];
-                // 1-9 open the first nine.
-                let key = if i < 9 { vec![chip(format!("{}", i + 1), t.text_dim, t.surface_high)] } else { Vec::new() };
-                vec![spread(left, key, width)]
+                // Its threads that are new since it was last opened; 1-9 open the first nine.
+                let mut right = Vec::new();
+                if let Some(&n) = app.favorites_new.get(&b.key()).filter(|&&n| n > 0) {
+                    right.extend([chip(plural(n, "new thread"), t.background, t.new), Span::raw("  ")]);
+                }
+                if i < 9 {
+                    right.push(chip(format!("{}", i + 1), t.text_dim, t.surface_high));
+                }
+                vec![spread(left, right, width)]
             }
             SiteRow::Recent(i) => {
                 let r = app.recent_board(i);

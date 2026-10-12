@@ -292,7 +292,10 @@ off per board.)
 sites.
 `*` on a board (in the Boards list, or in its catalog) makes it a favorite; favorites are
 listed at the top, and `1`–`9` open the first nine directly. `x` on a favorite takes it
-off. They're kept in the config as `favorites = ["4chan/g", "lainchan/λ"]`.
+off. They're kept in the config as `favorites = ["4chan/g", "lainchan/λ"]`. While the home
+screen is open, ck asks each favorite's catalog in the background, one at a time and each at
+most every five minutes, and a favorite you've opened before says how many of its
+threads are new since then ("3 new threads"); opening it clears that.
 
 Under them, marked ↺, are the last five boards you opened (that aren't favorites); `x`
 forgets one. The list is kept in the data directory (`recent_boards.json`).
@@ -875,7 +878,8 @@ ck draws flat: no lines or boxes, just areas of color. The screen is the darkest
 catalog entries and posts are cards a step lighter, and popups another step up; the
 selected row, card or post is tinted and marked by a stripe in the theme's accent color.
 
-`,` opens Settings (`/` filters them by name, what they're for or their value). They open over where you are: what's loading there goes on loading
+`,` opens Settings (`/` filters them by name, what they're for or their value; those whose
+name has it come first). They open over where you are: what's loading there goes on loading
 and lands under them (a post looked up opens its thread there), and `esc` closes them on
 wherever that left you. The thread under them isn't refreshed as the open one meanwhile:
 if it's watched, its new posts count as unread, as any watched thread's do. `:` from

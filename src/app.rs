@@ -443,6 +443,12 @@ pub struct App {
     refresh_thread: Duration,
     refresh_watched: Duration,
     watched_checked: HashMap<ThreadKey, Instant>,
+    /// Favorite boards' threads that are new since their catalog was last opened (by
+    /// `BoardRef::key`), and when each was last asked, for the home screen.
+    pub favorites_new: HashMap<String, usize>,
+    favorites_checked: HashMap<String, Instant>,
+    /// A favorite's catalog is being asked for (one at a time).
+    favorites_asking: bool,
     /// Refreshes of each watched thread in a row that brought nothing (`refresh_backoff`).
     watched_quiet: HashMap<ThreadKey, u32>,
     pub refresh_backoff: bool,
@@ -630,6 +636,9 @@ impl App {
             refresh_thread,
             refresh_watched,
             watched_checked: HashMap::new(),
+            favorites_new: HashMap::new(),
+            favorites_checked: HashMap::new(),
+            favorites_asking: false,
             watched_quiet: HashMap::new(),
             refresh_backoff: cfg.refresh_backoff,
             refreshing: HashSet::new(),
@@ -759,7 +768,13 @@ impl App {
     /// The settings `/` leaves: by name, what it's for, or its value.
     pub fn visible_settings(&self) -> Vec<usize> {
         let all: Vec<_> = settings::settings().collect();
-        filtered(&self.settings_list.filter, &all, |s| format!("{} {} {}", s.label, s.hint, (s.value)(self)))
+        let filter = &self.settings_list.filter;
+        let mut shown = filtered(filter, &all, |s| format!("{} {} {}", s.label, s.hint, (s.value)(self)));
+        // Those whose name has it first: `/lines` is Preview lines, not Text width (whose
+        // hint says "long lines"), so enter changes the one meant.
+        let needle = filter.to_lowercase();
+        shown.sort_by_key(|&i| !all.get(i).is_some_and(|s| s.label.to_lowercase().contains(&needle)));
+        shown
     }
 
     pub fn boards(&self) -> &[Board] {
@@ -1176,6 +1191,8 @@ impl App {
         let nos: Vec<u64> = c.posts().iter().map(|p| p.no).collect();
         let (site, board) = (c.site().to_string(), c.board().map_or(String::new(), |b| b.uri.clone()));
         self.tab.catalog.new = self.store.catalog_seen(&site, &board, &nos, self.clock.now());
+        // Seen now: the home screen's count of its new threads starts again.
+        self.favorites_new.remove(&crate::store::board_key(&site, &board));
         self.store.board_opened(&site, &board);
         self.note_titles(self.tab.site);
         self.save();
