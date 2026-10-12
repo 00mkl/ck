@@ -30,6 +30,20 @@ pub fn sandboxed() -> bool {
     cfg!(test) || std::env::var_os("CK_NO_EXTERNAL").is_some()
 }
 
+/// Start a program away from the terminal (no stdin, stdout or stderr, and on Unix a
+/// process group of its own, so ctrl-c in ck doesn't reach it), and wait on it in the
+/// background so it doesn't linger once it exits.
+pub fn spawn_detached(program: &str, args: impl IntoIterator<Item = String>) -> std::io::Result<()> {
+    use std::process::Stdio;
+    let mut cmd = std::process::Command::new(program);
+    cmd.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+    let mut child = cmd.spawn()?;
+    std::thread::spawn(move || child.wait());
+    Ok(())
+}
+
 pub(crate) mod app;
 pub(crate) mod atomic;
 pub(crate) mod backend;

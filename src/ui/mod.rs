@@ -206,6 +206,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         _ => {}
     }
     app.images.end_frame();
+    app.note_position();
     // Text in the terminal's own color on a filled color, in one that reads on it; and every
     // 24-bit color to the nearest of 256, for terminals without 24-bit color.
     for cell in f.buffer_mut().content.iter_mut() {

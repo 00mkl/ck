@@ -155,7 +155,7 @@ ones for where you are.
 | `h`/`l`, arrows | previous / next file (animated GIFs play); from a thread, every file in it (or in the conversation shown) |
 | space | pause an animated GIF |
 | `+` / `-` / `0` | zoom in / out (up to 800%) / fit again; zoomed in, `h`/`j`/`k`/`l` and the arrows move around, page up / down change file, `esc` fits |
-| `enter` | open the file externally, videos in mpv if it's installed (its thumbnail, when that's all there is) |
+| `enter` | open the file externally, videos in `video_player` or else mpv if it's installed (its thumbnail, when that's all there is) |
 | `y`  | copy the file's URL (or its thumbnail's) [`copy`] |
 | `d`  | save the file [`download`] |
 | `esc`, `q`, `v` | close |
@@ -224,6 +224,26 @@ moves; the top bar says how many new posts are below ("3 new, 2 below ↓"), and
 the first. Hidden posts aren't new there either (nor in the terminal title) until `c Z` shows
 them. `follow_new_posts = false` (or Settings › Background refresh › Reading the end)
 turns it off. A thread in another tab follows when you come back to it and it refreshes.
+
+### Where you left a thread
+
+Opening a thread you read before goes back to where you left it, also after ck restarts:
+the same post at the top of the screen, as far down it as you were, and the same post
+selected. Leaving it any way counts (going back, opening another thread over it, closing
+its tab, quitting), and so does a saved copy. A link to a post, a mark, ctrl-o and the
+tabs of the last session go where they say instead, and a post that isn't there any more
+doesn't send you to where you left the thread either. It goes back once, when the thread
+opens: a refresh, or the live posts arriving over a cached copy you've started reading,
+leaves you where you are. A post you were on that's been deleted or hidden since gives way
+to the next one shown (or the last). A reply shown under a post (`e`) or in a conversation
+counts as the post it's under. Only reading counts: opening a thread and leaving it without
+moving keeps where it was left before, and with a thread in two tabs, it's where you last
+read in either.
+
+The last 1000 threads are remembered (`positions.json` in the data directory); past that,
+the one read longest ago is dropped. `remember_thread_position = false` (or Settings ›
+Startup › Place in threads) opens threads at the top and stops remembering; what was
+remembered stays in the file until it's dropped the same way.
 
 ### Long posts
 
@@ -655,7 +675,8 @@ every tab at once; unwatching the thread (`w`, or `x` in Watched) forgets them.
 ck keeps its state as JSON in `$XDG_DATA_HOME/ck` (default `~/.local/share/ck`):
 `watched.json`, `history.json`, `recent_boards.json`, `board_prefs.json` (each board's
 sort and layout), `hidden.json` (what you hid with `. H`), `seen.json` (catalog threads
-seen, for "new" and `+N`), `session.json` (your tabs, for the next start), `recall.json`
+seen, for "new" and `+N`), `session.json` (your tabs, for the next start), `positions.json` (where you left each
+thread), `recall.json`
 (the lines typed after `:` and `/`, and your marks), and `saved.json`
 with `threads/` (saved threads). A file ck can't read (say, permissions) is left alone,
 and ck warns at start that changes to it won't be saved that run; a corrupt one is moved
@@ -945,10 +966,19 @@ All settings are optional; see `config.example.toml` for every option with comme
   view, thread and selected post, catalog sort and filter, saved in the data directory
   as `session.json`; a thread or catalog that failed to load is kept as it was asked
   for, and `R` tries it again the same way). `ck URL` always starts at the URL.
+- `remember_thread_position = false` to open threads at the top instead of where you
+  left them (see [Where you left a thread](#where-you-left-a-thread)). It's separate from
+  `restore_session`.
 - `favorites = ["4chan/g", ...]`, `hidden_sites = ["wizchan", ...]`: see
   [The home screen](#the-home-screen).
 - `notify = "auto" | "bell" | "off"`, `notify_command = [...]`: see
   [Notifications](#notifications).
+- `video_player = ["vlc", "{url}"]`: the program videos play in, run without a shell.
+  `{url}` in an argument is replaced by the video's URL; if no argument has it, the URL is
+  added at the end. Without it, videos play in mpv if it's installed, and otherwise in
+  the system's opener. If the player won't start, ck says so and doesn't try another.
+  For IINA on macOS:
+  `video_player = ["/Applications/IINA.app/Contents/MacOS/iina-cli", "--no-stdin", "{url}"]`.
 - `set_title = false` to leave the terminal's title alone (see
   [Notifications](#notifications)).
 - `[[filter]]`: hide or highlight threads and posts, see [Filters](#filters-and-hiding).

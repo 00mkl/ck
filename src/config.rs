@@ -48,6 +48,9 @@ pub struct Config {
     /// Start where the last run left off.
     #[serde(default = "default_true")]
     pub restore_session: bool,
+    /// Opening a thread read before goes back to where it was left.
+    #[serde(default = "default_true")]
+    pub remember_thread_position: bool,
     /// Images on boards the site marks NSFW (a board's own setting comes first).
     #[serde(default)]
     pub nsfw_images: NsfwImages,
@@ -92,8 +95,12 @@ pub struct Config {
     #[serde(default)]
     pub notify: crate::notify::NotifyMode,
     /// A command to notify with instead, `{title}` and `{body}` filled in.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "command")]
     pub notify_command: Option<Vec<String>>,
+    /// The program to play videos with, `{url}` filled in (default: mpv if it's installed,
+    /// else the system's opener).
+    #[serde(default, deserialize_with = "command")]
+    pub video_player: Option<Vec<String>>,
     /// `[[image_search]]`: reverse image search engines for `R` (default: a few well-known ones).
     #[serde(default, rename = "image_search")]
     pub image_search: Vec<ImageSearch>,
@@ -702,6 +709,15 @@ fn themes_table(doc: &mut DocumentMut) -> Option<&mut Table> {
     doc.entry("themes").or_insert(Item::Table(implicit)).as_table_mut()
 }
 
+/// A program and its arguments: there must be a program.
+fn command<'de, D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Option<Vec<String>>, D::Error> {
+    let argv = Vec::<String>::deserialize(d)?;
+    match argv.first() {
+        Some(program) if !program.is_empty() => Ok(Some(argv)),
+        _ => Err(serde::de::Error::custom("needs a program first: [\"program\", \"argument\", ...]")),
+    }
+}
+
 impl Config {
     /// The layout to start with: `catalog_layout`, or ck 0.2's `compact_catalog`.
     pub fn layout(&self) -> CatalogLayout {
@@ -781,6 +797,16 @@ mod tests {
             let e = toml::from_str::<Config>(text).unwrap_err().to_string();
             assert!(e.contains(&format!("unknown field `{key}`")), "{e}");
         }
+    }
+
+    #[test]
+    fn a_command_needs_a_program() {
+        for text in ["video_player = []", "video_player = [\"\", \"{url}\"]", "notify_command = []"] {
+            let e = toml::from_str::<Config>(text).unwrap_err().to_string();
+            assert!(e.contains("needs a program"), "{e}");
+        }
+        let c: Config = toml::from_str("video_player = [\"vlc\", \"--fullscreen\"]").unwrap();
+        assert_eq!(c.video_player, Some(vec!["vlc".to_string(), "--fullscreen".to_string()]));
     }
 
     #[cfg(unix)]

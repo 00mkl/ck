@@ -22,6 +22,23 @@ fn finds_programs_on_path() {
 }
 
 #[test]
+fn a_configured_video_player_wins_and_gets_the_url_as_one_argument() {
+    let url = "https://i.example/a b.webm?x=1&y=$(rm)";
+    let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let cmd = |p: Option<&[&str]>, mpv: bool| super::video_command(p.map(argv).as_deref(), || mpv, url);
+    // Over mpv, with `{url}` filled in where it's asked for, word for word.
+    let iina = ["/Applications/IINA.app/Contents/MacOS/iina-cli", "--no-stdin", "--url={url}"];
+    assert_eq!(cmd(Some(&iina), true), Some((iina[0].into(), argv(&["--no-stdin", &format!("--url={url}")]))));
+    // Or added at the end; the program's name is never filled in.
+    assert_eq!(cmd(Some(&["{url}", "--fullscreen"]), false), Some(("{url}".into(), argv(&["--fullscreen", url]))));
+    // Without one: mpv if it's there, else the system's opener.
+    assert_eq!(cmd(None, true), Some(("mpv".into(), argv(&[url]))));
+    assert_eq!(cmd(None, false), None);
+    // A player that isn't there fails, and nothing else starts.
+    assert!(crate::spawn_detached("ck-no-such-player", argv(&[url])).is_err());
+}
+
+#[test]
 fn mouse_wheel_click_and_double_click() {
     let mut app = test_app();
     let list = Some(Hit::List { area: Rect::new(1, 2, 60, 10), offset: 0, item_height: 1 });
@@ -6077,4 +6094,138 @@ fn favorites_say_how_many_of_their_threads_are_new() {
     app.goto_str("a/x");
     app.handle(answer(app.tab.req().unwrap(), App::catalog_arrived, Ok((1..=4).map(|no| Post { no, ..Default::default() }).collect())));
     assert!(app.favorites_new.is_empty());
+}
+
+// ----- where a thread was left -----
+
+/// Posts 1 to 40, No.20 thirty lines tall.
+fn long_thread(without: &[u64]) -> Vec<Post> {
+    let mut posts = nos(&(1..=40).filter(|n| !without.contains(n)).collect::<Vec<_>>());
+    if let Some(p) = posts.iter_mut().find(|p| p.no == 20) {
+        p.body = (0..30).map(|i| Line::from(format!("line {i}"))).collect();
+    }
+    posts
+}
+
+/// Open thread a/x/1 as `open` says, its posts arriving, and draw it.
+fn open_long(app: &mut App, open: Opening) {
+    app.open_thread_at(app.find_board("x"), 1, open);
+    app.handle(answer(app.tab.req().unwrap(), thread_arrived, arrived(long_thread(&[]))));
+    draw_at(app, 100, 20);
+}
+
+/// The selected post, and where the view is.
+fn reading(app: &App) -> (u64, usize) {
+    let t = app.tab.thread.as_ref().unwrap();
+    (t.current().unwrap().no, t.scroll)
+}
+
+#[test]
+fn a_thread_opens_again_where_it_was_left() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = saving_app(dir.path(), 1000);
+    open_long(&mut app, Opening::default());
+    // Read on to the tall No.20, and a few lines into it.
+    app.tab.thread.as_mut().unwrap().select(19);
+    draw_at(&mut app, 100, 20);
+    app.tab.thread.as_mut().unwrap().scroll_lines(10);
+    draw_at(&mut app, 100, 20);
+    let left = reading(&app);
+    let p = app.store.position(&here(&app, "x", 1)).cloned().unwrap();
+    assert_eq!((p.top, p.selected, left.0), (20, 20, 20));
+    assert!(p.offset > 0, "{p:?}");
+    // Left for the catalog and opened again: there again.
+    app.back();
+    assert_ne!(app.tab.view(), View::Thread);
+    open_long(&mut app, Opening::default());
+    assert_eq!(reading(&app), left);
+    // In a tab of its own, read further, and the tab closed: the first tab's place is where
+    // the thread was last read to, not where that tab still is.
+    app.tabs.push(Tab::new(app.tab.site, app.clock.instant()));
+    app.switch_tab(1);
+    open_long(&mut app, Opening::default());
+    assert_eq!(reading(&app), left);
+    app.tab.thread.as_mut().unwrap().select(29);
+    draw_at(&mut app, 100, 20);
+    let further = reading(&app);
+    app.close_tab();
+    draw_at(&mut app, 100, 20);
+    assert_eq!(reading(&app), left);
+    assert_eq!(app.store.position(&here(&app, "x", 1)).map(|p| p.selected), Some(30));
+    // After a restart, where it was last read to; another board's thread No.1 is another.
+    app.save_now();
+    let mut next = saving_app(dir.path(), 1000);
+    open_long(&mut next, Opening::default());
+    assert_eq!(reading(&next), further);
+    assert!(next.store.position(&ThreadKey { board: "xy".into(), ..here(&next, "x", 1) }).is_none());
+}
+
+#[test]
+fn a_post_to_go_to_wins_over_where_the_thread_was_left() {
+    let left = |app: &mut App| {
+        let key = here(app, "x", 1);
+        app.store.set_position(crate::store::Position { key, top: 20, offset: 3, selected: 20 });
+    };
+    let mut app = local_app();
+    left(&mut app);
+    open_long(&mut app, Opening::at(Some(30)));
+    assert_eq!(reading(&app).0, 30);
+    // A post that isn't there doesn't send it to where it was left either.
+    let mut app = local_app();
+    left(&mut app);
+    open_long(&mut app, Opening::at(Some(999)));
+    assert_eq!(reading(&app), (1, 0));
+    // Nor does it go there with remembering off; and nothing's remembered.
+    let mut app = local_app();
+    left(&mut app);
+    app.remember_thread_position = false;
+    open_long(&mut app, Opening::default());
+    app.tab.thread.as_mut().unwrap().select(9);
+    draw_at(&mut app, 100, 20);
+    assert_eq!(reading(&app).0, 10);
+    assert_eq!(app.store.position(&here(&app, "x", 1)).map(|p| p.selected), Some(20));
+}
+
+#[test]
+fn a_post_left_at_that_was_deleted_gives_way_to_the_next() {
+    let mut app = thread_app();
+    let key = here(&app, "x", 1);
+    app.store.set_position(crate::store::Position { key, top: 25, offset: 99, selected: 25 });
+    app.set_thread(long_thread(&[25, 26]));
+    draw_at(&mut app, 100, 20);
+    let t = app.tab.thread.as_ref().unwrap();
+    assert_eq!((t.current().unwrap().no, t.position().map(|p| (p.top, p.offset))), (27, Some((27, 0))));
+    // An offset past the end of a post that got shorter (or a wider screen) stays in it.
+    let mut app = thread_app();
+    let key = here(&app, "x", 1);
+    app.store.set_position(crate::store::Position { key, top: 20, offset: 99, selected: 20 });
+    app.set_thread(long_thread(&[]));
+    draw_at(&mut app, 100, 20);
+    assert_eq!(app.tab.thread.as_ref().unwrap().position().map(|p| p.top), Some(20));
+}
+
+#[test]
+fn reading_on_in_a_cached_copy_isnt_undone_when_the_live_posts_arrive() {
+    let mut app = thread_app();
+    let key = here(&app, "x", 1);
+    app.store.set_position(crate::store::Position { key: key.clone(), top: 30, offset: 0, selected: 30 });
+    // The copy kept opens where the thread was left; the live posts arriving before it's
+    // drawn keep that.
+    app.set_cached_thread(key.clone(), arrived(long_thread(&[])).unwrap(), 0);
+    app.set_thread(long_thread(&[]));
+    draw_at(&mut app, 100, 20);
+    let at = reading(&app);
+    assert_eq!((at.0, app.tab.thread.as_ref().unwrap().position().map(|p| p.top)), (30, Some(30)));
+    // Read on in the copy before they arrive: they don't take it back.
+    let mut app = thread_app();
+    app.store.set_position(crate::store::Position { key: key.clone(), top: 30, offset: 0, selected: 30 });
+    app.set_cached_thread(key, arrived(long_thread(&[])).unwrap(), 0);
+    draw_at(&mut app, 100, 20);
+    assert_eq!(reading(&app), at);
+    app.tab.thread.as_mut().unwrap().select(35);
+    draw_at(&mut app, 100, 20);
+    let read_on = reading(&app);
+    app.set_thread(long_thread(&[]));
+    draw_at(&mut app, 100, 20);
+    assert_eq!(reading(&app), read_on);
 }

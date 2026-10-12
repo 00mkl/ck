@@ -189,6 +189,8 @@ pub struct ThreadView {
     ids: HashMap<String, usize>,
     /// Only the posts with files, or images hidden (`M`).
     pub media: Media,
+    /// Where it was last seen read to (`App::note_position`); first, where it opened.
+    pub noted: Option<crate::store::Position>,
 }
 
 /// Where `zz`, `zt` and `zb` put the selected entry on the screen.
@@ -710,7 +712,6 @@ impl ThreadView {
         Ok(open)
     }
 
-    /// The entry at the top of the view and how many of its lines are scrolled past.
     /// Whether the end of the thread is being read: the last entry shown is selected, and
     /// the end is on screen.
     pub fn at_end(&self) -> bool {
@@ -739,10 +740,38 @@ impl ThreadView {
         self.entries.iter().position(|e| e.path.len() == 1 && self.is_new(e.post)).filter(|&e| e > 0)
     }
 
+    /// The entry at the top of the view and how many of its lines are scrolled past.
     pub(super) fn top_anchor(&self) -> Option<(usize, usize)> {
         let l = self.layout.as_ref()?;
         let top = l.starts.partition_point(|&s| s <= self.scroll).saturating_sub(1);
         Some((top, self.scroll - l.starts.get(top)?))
+    }
+
+    /// Where it's read to, to come back to: the post at the top of the view and how far
+    /// into it (a reply shown under a post, or in a conversation, counts as its top-level
+    /// post), and the selected post. Nothing until it's laid out.
+    pub fn position(&self) -> Option<crate::store::Position> {
+        let (e, off) = self.top_anchor()?;
+        let path = &self.entries.get(e)?.path;
+        let offset = if path.len() == 1 { off } else { 0 };
+        Some(crate::store::Position { key: self.key.clone(), top: *path.first()?, offset, selected: self.current()?.no })
+    }
+
+    /// Go back to `p` (`position`), when the thread is first shown. A post that's gone or
+    /// hidden since: the next one shown, else the last.
+    pub fn restore(&mut self, p: &crate::store::Position) {
+        if let Some(e) = self.nearest_entry(p.selected) {
+            self.set_cursor(e);
+        }
+        self.anchor = self.nearest_entry(p.top).map(|e| (e, if self.entries.get(e).is_some_and(|x| x.path == [p.top]) { p.offset } else { 0 }));
+    }
+
+    /// The top-level entry of post `no`, or of the first post after it that's shown and not
+    /// collapsed (else the last such).
+    fn nearest_entry(&self, no: u64) -> Option<usize> {
+        let shown = |e: &&Entry| e.path.len() == 1 && !self.is_collapsed(e.post);
+        let at = |e: &Entry| e.path.first().is_some_and(|&n| n >= no);
+        self.entries.iter().position(|e| shown(&e) && at(e)).or_else(|| self.entries.iter().rposition(|e| shown(&e)))
     }
 
     /// Select a post's top-level entry. A post outside the conversation shown leaves it.
@@ -851,6 +880,8 @@ impl ThreadView {
             Reveal::Bottom => self.scroll = end.saturating_sub(view),
             // Come to from below, a post taller than the screen shows its end.
             Reveal::End if end - start > view => self.scroll = end.saturating_sub(1 + view),
+            // A post taller than the screen is in view while any of it is on screen.
+            Reveal::Visible if end - start > view && start < self.scroll + view && end.saturating_sub(1) > self.scroll => {}
             // A jump lands with the target's top at the margin, unless it's well in view.
             Reveal::Jump if m > 0 => {
                 if start < self.scroll + m || end > self.scroll + view - m {

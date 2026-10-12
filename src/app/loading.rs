@@ -432,12 +432,15 @@ impl App {
                 // the posts shown by their files.
                 tv.conversation.clone_from(&old.conversation);
                 tv.media = old.media;
+                tv.noted.clone_from(&old.noted);
                 let cursor_path = old.entries.get(old.entry()).map(|e| e.path.clone());
                 tv.rebuild_entries();
                 if let Some(e) = cursor_path.and_then(|p| tv.entry_of(&p)) {
                     tv.set_cursor(e);
                 }
-                tv.anchor = old.top_anchor().and_then(|(i, off)| Some((tv.entry_of(&old.entries.get(i)?.path)?, off)));
+                // (Or where it was going to be, if it wasn't drawn yet: a copy shown where it
+                // was left, the posts arriving before the screen was.)
+                tv.anchor = old.top_anchor().or(old.anchor).and_then(|(i, off)| Some((tv.entry_of(&old.entries.get(i)?.path)?, off)));
                 tv.scroll = old.scroll;
                 tv.viewport = old.viewport;
                 tv.cache = old.cache;
@@ -459,6 +462,15 @@ impl App {
             }
             None => {
                 tv.new_after = last_seen;
+                // Opened without a post to go to: where it was left. (One that's gone isn't
+                // swapped for that.)
+                if open.select.is_none()
+                    && open.conversation.is_none()
+                    && self.remember_thread_position
+                    && let Some(p) = self.store.position(tv.key()).cloned()
+                {
+                    tv.restore(&p);
+                }
                 if let Some(i) = open.select.and_then(|no| tv.index.get(&no).copied()) {
                     tv.selected = i;
                 }

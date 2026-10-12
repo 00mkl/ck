@@ -478,6 +478,8 @@ pub struct App {
     notes_since: Option<Instant>,
     pub notify_mode: crate::notify::NotifyMode,
     pub notify_command: Option<Vec<String>>,
+    /// `video_player`: the program videos play in.
+    pub video_player: Option<Vec<String>>,
     /// Notifications sent (the last few), for the record.
     pub notified: Vec<String>,
     /// Sites whose saved board list is being refreshed in the background, and when each was
@@ -506,6 +508,8 @@ pub struct App {
     pub image_search: Vec<crate::config::ImageSearch>,
     /// Save where you are and start there next time.
     pub restore_session: bool,
+    /// Opening a thread read before goes back to where it was left (`remember_thread_position`).
+    pub remember_thread_position: bool,
     /// Reading the end of a thread, new posts come into view (`follow_new_posts`).
     pub follow_new_posts: bool,
     /// `set_title`: the terminal's title says where ck is and what's new; and the title as
@@ -655,6 +659,7 @@ impl App {
             notes_since: None,
             notify_mode: cfg.notify,
             notify_command: cfg.notify_command.clone(),
+            video_player: cfg.video_player.clone(),
             notified: Vec::new(),
             boards_refreshing: HashSet::new(),
             boards_tried: HashMap::new(),
@@ -678,6 +683,7 @@ impl App {
             }, DiskCache::default_dir().map(|d| DiskCache::new(d, crate::disk_cache::BUDGET))),
             image_search: if cfg.image_search.is_empty() { crate::config::ImageSearch::defaults() } else { cfg.image_search.clone() },
             restore_session: cfg.restore_session,
+            remember_thread_position: cfg.remember_thread_position,
             follow_new_posts: cfg.follow_new_posts,
             set_title: cfg.set_title,
             title_shown: None,
@@ -1171,6 +1177,21 @@ impl App {
     pub fn flush_writes(&mut self) {
         for e in self.store.flush(Duration::from_secs(5)) {
             self.error(e);
+        }
+    }
+
+    /// Remember where the thread on screen is read to (`remember_thread_position`): after
+    /// each frame, so leaving it, closing its tab or quitting has nothing more to do. Only
+    /// moving in it counts, not where it opened, nor a tab shown again: a thread in two tabs
+    /// is remembered where it was last read to.
+    pub fn note_position(&mut self) {
+        if !self.remember_thread_position || self.tab.view() != View::Thread {
+            return;
+        }
+        let Some(t) = self.tab.thread.as_mut() else { return };
+        let Some(p) = t.position().filter(|p| t.noted.as_ref() != Some(p)) else { return };
+        if t.noted.replace(p.clone()).is_some() && self.store.set_position(p) {
+            self.save();
         }
     }
 
@@ -1682,27 +1703,19 @@ impl App {
         }
     }
 
-    /// Open a file externally: videos in mpv when it's installed, everything else in the
+    /// Open a file externally: videos in the video player, everything else in the
     /// default opener; a file the site or archive didn't keep, as its thumbnail.
     pub fn open_file(&mut self, f: &Attachment) {
-        let url = match (f.url.as_deref(), f.kind) {
-            (Some(u), FileKind::Video) if on_path("mpv") && !crate::sandboxed() => u,
-            (Some(u), _) => return self.open_url(u),
-            (None, _) => return match &f.thumb {
-                Some(t) => self.open_link(crate::model::THUMBNAIL_URL, t),
-                None => self.info(NEITHER),
-            },
+        let url = match (f.url.as_deref(), &f.thumb) {
+            (Some(u), _) => u,
+            (None, Some(t)) => return self.open_link(crate::model::THUMBNAIL_URL, t),
+            (None, None) => return self.info(NEITHER),
         };
-        let mut cmd = std::process::Command::new("mpv");
-        cmd.arg(url)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        #[cfg(unix)]
-        std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
-        match cmd.spawn() {
-            Ok(_) => self.info(format!("Playing {} in mpv", f.filename)),
-            Err(e) => self.error(anyhow::Error::from(e).context("Couldn't start mpv")),
+        let player = if f.kind == FileKind::Video { video_command(self.video_player.as_deref(), || on_path("mpv"), url) } else { None };
+        let Some((program, args)) = player.filter(|_| !crate::sandboxed()) else { return self.open_url(url) };
+        match crate::spawn_detached(&program, args) {
+            Ok(()) => self.info(format!("Playing {} in {program}", f.filename)),
+            Err(e) => self.error(anyhow::Error::from(e).context(format!("Couldn't start {program}"))),
         }
     }
 
@@ -2043,6 +2056,20 @@ pub fn thread_subject(posts: &[Post]) -> String {
     // After the last whole word, unless that leaves little.
     let head = head.rsplit_once(' ').map(|(h, _)| h).filter(|h| h.chars().count() > MOST / 2).unwrap_or(head);
     format!("{}…", head.trim_end())
+}
+
+/// The program and arguments that play the video at `url`: `player` (from the config)
+/// with `{url}` filled in, or the URL added at the end if no argument has it; without one,
+/// mpv if it's installed. `None` leaves it to the system's opener.
+fn video_command(player: Option<&[String]>, has_mpv: impl FnOnce() -> bool, url: &str) -> Option<(String, Vec<String>)> {
+    let Some((program, args)) = player.and_then(|p| p.split_first()) else {
+        return has_mpv().then(|| ("mpv".to_string(), vec![url.to_string()]));
+    };
+    let mut filled: Vec<String> = args.iter().map(|a| a.replace("{url}", url)).collect();
+    if !args.iter().any(|a| a.contains("{url}")) {
+        filled.push(url.to_string());
+    }
+    Some((program.clone(), filled))
 }
 
 pub fn on_path(program: &str) -> bool {

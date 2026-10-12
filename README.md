@@ -32,7 +32,8 @@ terminal. (Click the tour for [the video](ck-demo.webm), with controls.)
   yours. They're saved as they go, so a thread that dies can still be read offline.
 - **Filters** and hidden words hide or highlight threads and posts.
 - **Archive search** on FoolFuuka archives, and the archive's copy of a thread that 404'd.
-- **Tabs**, `:` to open any thread or board URL, and the session restored at the next start.
+- **Tabs**, `:` to open any thread or board URL, the session restored at the next start, and
+  threads reopened where you left them.
 - **Themes**, remappable keys, and a settings screen that writes your config.
 
 ck follows 4chan's API rules on every site: at most one request a second per host, and
