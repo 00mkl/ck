@@ -754,7 +754,7 @@ config, else a new one each run), for deleting them on the site where it lets yo
 Many sites (4chan among them) are behind Cloudflare, which only lets browsers through, so ck
 posts through a browser of its own: ck-web, Chromium (CEF) with no window, which ck starts
 the first time you send a post. ck doesn't come with it (Chromium is too big for crates.io):
-the first ctrl-s asks to download it, about 135 MB, from ck's releases on GitHub (the
+the first ctrl-s asks to download it, about 150 MB, from ck's releases on GitHub (the
 `ck-web-v…` ones, built by the repository's workflow). ck checks the download against the
 SHA-256 it has for that version, and won't use one that differs, then unpacks it in
 `$XDG_DATA_HOME/ck/web/<version>` (default `~/.local/share/ck/web`). A ck that needs a newer
@@ -778,11 +778,13 @@ lets these load even on sites whose pages forbid other hosts' scripts (it loads 
 the site's pages and the captcha). A bot check that works itself out (ptch.net's) shows a
 moment, then goes.
 
-The download is for Linux (x86_64 and ARM). Elsewhere, or to use your own build, build it
-from the repository with `cargo build --release -p ck-web` (it needs cmake and ninja) and
-point `web_helper` at `target/release/ck-web`, or run ck from that folder. If ck-web stops
-(a library Chromium needs is missing, say), the box shows the last thing it said. macOS
-needs an app bundle, which isn't made yet.
+The download is for Linux and macOS (x86_64 and ARM each). Elsewhere, or to use your own
+build, build it from the repository with `cargo build --release -p ck-web` (it needs cmake
+and ninja) and point `web_helper` at `target/release/ck-web`, or run ck from that folder.
+On macOS, Chromium only runs from an app: `sh ck-web/bundle-macos.sh` then makes
+`target/release/ck-web.app`, and `web_helper` points at
+`target/release/ck-web.app/Contents/MacOS/ck-web`. If ck-web stops (a library Chromium needs
+is missing, say), the box shows the last thing it said.
 
 ## Searching archives
 

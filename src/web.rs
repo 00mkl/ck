@@ -227,7 +227,9 @@ pub fn find(configured: Option<&str>) -> Option<PathBuf> {
         return Some(p);
     }
     let exe = format!("{NAME}{}", std::env::consts::EXE_SUFFIX);
-    let beside = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(&exe)));
+    // (On macOS, its app.)
+    let app = if cfg!(target_os = "macos") { install::PROGRAM } else { exe.as_str() };
+    let beside = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join(app)));
     let on_path = std::env::var_os("PATH").into_iter().flat_map(|p| std::env::split_paths(&p).collect::<Vec<_>>()).map(|d| d.join(&exe));
     beside.into_iter().chain(on_path).find(|p| p.is_file())
 }
