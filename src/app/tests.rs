@@ -5669,6 +5669,50 @@ fn a_post_goes_from_captcha_to_yours() {
 }
 
 #[test]
+fn ctrl_p_logs_in_with_the_sites_pass_and_keeps_nothing_typed() {
+    let mut app = fourchan_thread(&[1]);
+    app.act(Action::Reply);
+    type_text(&mut app, "hi");
+    assert_eq!(reply_box(&mut app).pass, Some("4chan Pass"));
+    // ck-web isn't there (tests have none): ctrl-p says so, or offers it.
+    app.on_key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+    let c = reply_box(&mut app);
+    assert!(c.problem.is_some() || matches!(c.stage, Stage::Offer));
+    // As the check through it would end: not logged in, so the form, typed into as dots.
+    let to = c.to.clone();
+    let attempt = app.start_attempt(&to, Stage::Working).unwrap();
+    app.pass_done(&to, attempt, false, Ok(super::posting::PassDone::Checked(false)));
+    type_text(&mut app, "token");
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    type_text(&mut app, "1234");
+    let Stage::Pass(form) = &reply_box(&mut app).stage else { panic!("no pass form") };
+    assert_eq!(form.fields.iter().map(|(l, e)| (*l, e.text().to_string())).collect::<Vec<_>>(), [("Token", "token".to_string()), ("PIN", "1234".into())]);
+    // Closing the box drops what was typed, and keeps the post.
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert!(app.popup.is_none());
+    app.act(Action::Reply);
+    let c = reply_box(&mut app);
+    assert!(matches!(c.stage, Stage::Writing) && c.comment.text() == "hi");
+    // A refused login asks again, saying why; one that worked says so.
+    let attempt = app.start_attempt(&to, Stage::Working).unwrap();
+    app.pass_done(&to, attempt, true, Err(anyhow::anyhow!("Incorrect Token or PIN.")));
+    let c = reply_box(&mut app);
+    assert!(matches!(&c.stage, Stage::Pass(f) if !f.logged_in && f.fields.iter().all(|(_, e)| e.is_empty())));
+    assert_eq!(c.problem.as_deref(), Some("Incorrect Token or PIN."));
+    let attempt = app.start_attempt(&to, Stage::Working).unwrap();
+    app.pass_done(&to, attempt, true, Ok(super::posting::PassDone::LoggedIn));
+    let c = reply_box(&mut app);
+    assert!(matches!(c.stage, Stage::Writing) && c.note.as_deref().is_some_and(|n| n.starts_with("Logged in with your 4chan Pass")));
+    // Logged in, ctrl-p offers to log out.
+    let attempt = app.start_attempt(&to, Stage::Working).unwrap();
+    app.pass_done(&to, attempt, false, Ok(super::posting::PassDone::Checked(true)));
+    assert!(matches!(&reply_box(&mut app).stage, Stage::Pass(f) if f.logged_in));
+    app.on_key(KeyEvent::from(KeyCode::Char('n')));
+    assert!(matches!(reply_box(&mut app).stage, Stage::Writing));
+}
+
+#[test]
 fn a_new_thread_opens_once_the_api_has_it() {
     let mut app = test_app();
     app.clock = Clock { fixed: Some(NOW), ..Default::default() };

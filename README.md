@@ -26,7 +26,8 @@ terminal. (Click the tour for [the video](ck-demo.webm), with controls.)
   viewer that plays GIFs, a gallery of a thread's files, downloads and reverse image search.
 - **Posting** on 4chan, vichan, LynxChan, jschan and 2ch sites: a reply box with quoting and
   drafts, the site's captcha answered in the terminal, and Cloudflare's check clicked there
-  too; your posts are marked as yours. The first post downloads ck-web, the browser ck posts
+  too; your posts are marked as yours. Log in with a 4chan Pass or a 2ch passcode
+  (ctrl-p) to skip the captcha. The first post downloads ck-web, the browser ck posts
   through (about 150 MB, once; Linux and macOS).
 - **Watched threads** refresh in the background and notify you of new posts and replies to
   yours. They're saved as they go, so a thread that dies can still be read offline.

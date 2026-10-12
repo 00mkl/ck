@@ -1,12 +1,13 @@
 //! 4chan: its captcha (the "twister", read the way 4chan's own `tcaptcha.js` reads it) comes
 //! in a frame of sys.4chan.org, which ck-web asks for; posts go to sys.4chan.org.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Result, bail};
 use serde_json::Value;
 
-use super::{Draft, Posted, Poster, Session, Where, said};
+use super::{Draft, Pass, Posted, Poster, Session, Web, Where, said, text_of_class};
 use crate::captcha::{Cell, Challenge, Step, Task, decode, inline_image};
 use crate::markup::strip_tags;
 use crate::web::{Fetch, Upload};
@@ -25,7 +26,19 @@ impl Poster for Fourchan {
         Some(2000)
     }
 
+    fn pass(&self) -> Option<Arc<dyn Pass>> {
+        Some(Arc::new(FourchanPass))
+    }
+
     fn post(&self, s: &Session, to: &Where, draft: &Draft) -> Result<Posted> {
+        // With a 4chan Pass there's no captcha, as 4chan's own form has it; unless 4chan
+        // doesn't take the pass now (in use from another IP), then it's the captcha after all.
+        if s.web.fetch(Fetch::get("/robots.txt"))?.cookie("pass_enabled") == Some("1") {
+            match send(s, to, draft, Vec::new()) {
+                Err(e) if e.to_string().contains("4chan Pass") => s.ask.wait(Instant::now(), &format!("{e} Posting with a captcha instead."))?,
+                sent => return sent,
+            }
+        }
         let (challenge, answer) = loop {
             match parse(&s.web.fourchan_captcha(&to.board, to.thread)?, Instant::now()) {
                 Twister::Refused(why) => bail!(why),
@@ -38,24 +51,72 @@ impl Poster for Fourchan {
                 }
             }
         };
-        let mut fields = vec![("mode".to_string(), "regist".to_string())];
-        if !to.new_thread() {
-            fields.push(("resto".into(), to.thread.to_string()));
+        send(s, to, draft, answer_fields(&challenge, &answer))
+    }
+}
+
+/// Send the post, with the captcha's fields (none with a pass).
+fn send(s: &Session, to: &Where, draft: &Draft, captcha: Vec<(String, String)>) -> Result<Posted> {
+    let mut fields = vec![("mode".to_string(), "regist".to_string())];
+    if !to.new_thread() {
+        fields.push(("resto".into(), to.thread.to_string()));
+    }
+    fields.extend([("name".into(), draft.name.clone()), ("email".into(), draft.email.clone())]);
+    if to.new_thread() {
+        fields.push(("sub".into(), draft.subject.clone()));
+    }
+    fields.push(("com".into(), draft.comment.clone()));
+    if draft.spoiler && draft.file.is_some() {
+        fields.push(("spoiler".into(), "on".into()));
+    }
+    fields.push(("pwd".into(), draft.password.clone()));
+    fields.extend(captcha);
+    let url = format!("https://sys.4chan.org/{}/post", crate::http::encode_segment(&to.board));
+    let file = draft.file.as_ref().map(|p| Upload { field: "upfile".into(), path: p.display().to_string() });
+    let r = s.web.fetch(Fetch { file, ..Fetch::post(&url, fields) }.header("Accept", "application/json"))?;
+    posted(r.status, &r.body).map(|(thread, no)| Posted { thread, no })
+}
+
+/// The 4chan Pass: logged in to at sys.4chan.org/auth, which sets `pass_enabled` (that 4chan's
+/// own scripts read) with the pass's own cookie.
+pub struct FourchanPass;
+
+impl Pass for FourchanPass {
+    fn name(&self) -> &'static str {
+        "4chan Pass"
+    }
+
+    fn asks(&self) -> &'static [&'static str] {
+        &["Token", "PIN"]
+    }
+
+    fn page(&self) -> String {
+        "https://sys.4chan.org/robots.txt".into()
+    }
+
+    fn logged_in(&self, web: &dyn Web) -> Result<bool> {
+        Ok(web.fetch(Fetch::get("/robots.txt"))?.cookie("pass_enabled") == Some("1"))
+    }
+
+    fn log_in(&self, web: &dyn Web, answers: &[String]) -> Result<()> {
+        let [token, pin] = answers else { bail!("A 4chan Pass needs its token and PIN") };
+        // Remembered for a year, as the page's checkbox has it.
+        let fields = vec![("id".into(), token.trim().into()), ("pin".into(), pin.trim().into()), ("long_login".into(), "1".into())];
+        let r = web.fetch(Fetch::post("/auth", fields).header("Referer", "https://sys.4chan.org/auth"))?;
+        if r.cookie("pass_enabled") == Some("1") {
+            return Ok(());
         }
-        fields.extend([("name".into(), draft.name.clone()), ("email".into(), draft.email.clone())]);
-        if to.new_thread() {
-            fields.push(("sub".into(), draft.subject.clone()));
+        match text_of_class(&r.body, "msg-error") {
+            Some(why) => bail!(why),
+            None => bail!("4chan didn't log you in (it answered {})", r.status),
         }
-        fields.push(("com".into(), draft.comment.clone()));
-        if draft.spoiler && draft.file.is_some() {
-            fields.push(("spoiler".into(), "on".into()));
+    }
+
+    fn log_out(&self, web: &dyn Web) -> Result<()> {
+        if web.fetch(Fetch::get("/auth?act=logout"))?.cookie("pass_enabled") == Some("1") {
+            bail!("4chan didn't log you out");
         }
-        fields.push(("pwd".into(), draft.password.clone()));
-        fields.extend(answer_fields(&challenge, &answer));
-        let url = format!("https://sys.4chan.org/{}/post", crate::http::encode_segment(&to.board));
-        let file = draft.file.as_ref().map(|p| Upload { field: "upfile".into(), path: p.display().to_string() });
-        let r = s.web.fetch(Fetch { file, ..Fetch::post(&url, fields) }.header("Accept", "application/json"))?;
-        posted(r.status, &r.body).map(|(thread, no)| Posted { thread, no })
+        Ok(())
     }
 }
 
@@ -222,6 +283,7 @@ mod tests {
     fn a_post_waits_out_the_cooldown_then_answers_the_captcha() {
         use super::super::fake::{Person, Site, session};
         let site = Site::default()
+            .answers("/robots.txt", 200, "")
             .twister(json!({"pcd": 30, "pcd_msg": "Slow down."}))
             .twister(json!({"challenge": "c1", "ttl": 60, "extTask": {"mode": 1, "str": "Type it"}}))
             .twister(json!({"challenge": "c2", "ttl": 60, "extTask": {"mode": 1, "str": "Type it"}}))
@@ -234,6 +296,46 @@ mod tests {
         assert_eq!(person.waited.borrow().as_slice(), ["Slow down."]);
         let sent = site.sent("/g/post");
         assert_eq!((sent.field("resto"), sent.field("com"), sent.field("t-challenge"), sent.field("t-response")), (Some("7"), Some("hi"), Some("c2"), Some("ab1")));
+    }
+
+    #[test]
+    fn with_a_pass_a_post_skips_the_captcha_unless_4chan_wont_take_it() {
+        use super::super::fake::{Person, Site, session};
+        let draft = Draft { comment: "hi".into(), ..Default::default() };
+        let to = Where { site: "4chan".into(), board: "g".into(), thread: 7 };
+        // No captcha is asked for (the fake has none to give).
+        let site = Site::default().answers("/robots.txt", 200, "").sets("pass_enabled=1").answers("/g/post", 200, r#"{"pid": 12, "tid": 7}"#);
+        let person = Person::default();
+        assert_eq!(Fourchan.post(&session(&site, &person), &to, &draft).unwrap(), Posted { thread: 7, no: 12 });
+        assert_eq!(site.sent("/g/post").field("t-challenge"), None);
+        assert!(person.shown.borrow().is_empty());
+        // In use elsewhere: said, then the captcha.
+        let site = Site::default()
+            .answers("/robots.txt", 200, "")
+            .sets("pass_enabled=1")
+            .answers("/g/post", 200, r#"{"error": "Your 4chan Pass is in use from another IP."}"#)
+            .twister(json!({"challenge": "c", "ttl": 60, "extTask": {"mode": 1, "str": "Type it"}}))
+            .answers("/g/post", 200, r#"{"pid": 13, "tid": 7}"#);
+        let person = Person::says(&[Some("ab")]);
+        assert_eq!(Fourchan.post(&session(&site, &person), &to, &draft).unwrap(), Posted { thread: 7, no: 13 });
+        assert_eq!(person.waited.borrow().as_slice(), ["Your 4chan Pass is in use from another IP. Posting with a captcha instead."]);
+        assert_eq!(site.sent("/g/post").field("t-challenge"), Some("c"));
+    }
+
+    #[test]
+    fn a_4chan_pass_logs_in_and_out() {
+        use super::super::fake::Site;
+        let answers = ["tok".to_string(), " 123456 ".to_string()];
+        let site = Site::default().answers("/auth", 200, "<h2 class=\"msg-success\">Success!</h2>").sets("pass_enabled=1");
+        FourchanPass.log_in(&site, &answers).unwrap();
+        let sent = site.sent("/auth");
+        assert_eq!((sent.field("id"), sent.field("pin"), sent.field("long_login")), (Some("tok"), Some("123456"), Some("1")));
+        // 4chan's answer to a wrong one, as it came.
+        let site = Site::default().answers("/auth", 200, "fixture:4chan_pass_wrong.html");
+        assert_eq!(FourchanPass.log_in(&site, &answers).unwrap_err().to_string(), "Incorrect Token or PIN.");
+        let site = Site::default().answers("/robots.txt", 200, "").sets("a=1; pass_enabled=1").answers("/auth?act=logout", 200, "");
+        assert!(FourchanPass.logged_in(&site).unwrap());
+        FourchanPass.log_out(&site).unwrap();
     }
 
     #[test]
