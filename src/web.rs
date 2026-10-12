@@ -11,7 +11,7 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
-pub use protocol::{Reply, Request, Upload};
+pub use protocol::{Reply, Request, Upload, mime};
 
 const NAME: &str = "ck-web";
 
@@ -237,6 +237,18 @@ pub fn find(configured: Option<&str>) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn files_are_sent_as_what_they_are() {
+        let jpeg = b"\xFF\xD8\xFF\xE0\0\x10JFIF";
+        let mp4 = b"\0\0\0\x20ftypisom\0\0\x02\0";
+        assert_eq!(protocol::mime(jpeg, "a.bin"), "image/jpeg");
+        assert_eq!(protocol::mime(mp4, "clip"), "video/mp4");
+        assert_eq!(protocol::mime(b"\x1A\x45\xDF\xA3\x01", "x"), "video/webm");
+        // Not known by its bytes: by its name, else as bytes.
+        assert_eq!(protocol::mime(b"hello", "notes.TXT"), "text/plain");
+        assert_eq!(protocol::mime(b"", "x"), "application/octet-stream");
+    }
 
     #[test]
     // page.js writes its replies by hand.

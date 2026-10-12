@@ -339,6 +339,12 @@ impl Images {
         self.slots.insert(url.to_string(), slot);
     }
 
+    /// An image that couldn't be had (tests).
+    #[cfg(test)]
+    pub fn insert_failed(&mut self, url: &str) {
+        self.slots.insert(url.to_string(), Slot::Failed);
+    }
+
     /// Put an animation's decoded frames in the cache (tests).
     #[cfg(test)]
     pub fn insert_frames(&mut self, url: &str, frames: Vec<(DynamicImage, Duration)>) {

@@ -97,7 +97,8 @@
       for (const [k, v] of fields) body.append(k, v);
       if (file) {
         const bytes = Uint8Array.from(atob(file.data), (c) => c.charCodeAt(0));
-        body.append(file.field, new Blob([bytes]), file.name);
+        // With its type: a site that checks it (jschan) refuses one without.
+        body.append(file.field, new Blob([bytes], { type: file.type }), file.name);
       }
     }
     const head = Object.fromEntries(headers.filter(([k]) => k.toLowerCase() !== "referer"));

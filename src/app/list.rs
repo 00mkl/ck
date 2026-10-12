@@ -97,7 +97,12 @@ impl App {
     pub(crate) fn position(&self) -> Option<(usize, usize)> {
         let view = self.tab.view();
         if view == View::Thread {
-            return self.tab.thread.as_ref().filter(|_| self.tab.gallery.is_none())?.ruler();
+            // In a thread's gallery, the selected file of how many.
+            if let Some(g) = &self.tab.gallery {
+                let n = g.files.len();
+                return (n > 0).then(|| (g.state.selected().unwrap_or(0).min(n - 1) + 1, n));
+            }
+            return self.tab.thread.as_ref()?.ruler();
         }
         let rows = self.row_keys(view);
         Some((row_in(self.list(view)?, &rows)?.saturating_add(1), rows.len())).filter(|&(_, n)| n > 0)

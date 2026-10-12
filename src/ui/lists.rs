@@ -211,29 +211,34 @@ pub(super) fn draw_saved(f: &mut Frame, app: &mut App, area: Rect) {
 
 pub(super) fn draw_boards(f: &mut Frame, app: &mut App, area: Rect) {
     let t = theme();
-    let width = app.boards().iter().map(|b| markup::columns(&b.uri)).max().unwrap_or(1) + 4;
+    // Names padded as wide as nearly all of them: a rare long one (8kun's) pushes its own
+    // title along rather than every row's.
+    let mut names: Vec<usize> = app.boards().iter().map(|b| markup::columns(&b.uri)).collect();
+    names.sort_unstable();
+    let width = names.get(names.len() * 9 / 10).copied().unwrap_or(1) + 4;
     let rows = app.visible_boards();
     let mut state = app.list_state(View::Boards);
-    let line = |b: &crate::model::Board| {
-        let mut spans = vec![
-            Span::styled(pad(&format!("/{}/", b.uri), width), bold(t.primary)),
-            Span::styled(b.title.clone(), Style::new().fg(t.text)),
-        ];
-        if b.nsfw == Some(true) {
-            spans.push(Span::styled("  nsfw", Style::new().fg(t.error)));
-        }
-        Line::from(spans)
+    // At most `fit` columns: a title too long is cut short, keeping the name and the tag.
+    let line = |b: &crate::model::Board, fit: usize| {
+        let name = pad(&format!("/{}/ ", b.uri), width);
+        let nsfw = if b.nsfw == Some(true) { "  nsfw" } else { "" };
+        let room = fit.saturating_sub(markup::columns(&name) + markup::columns(nsfw));
+        Line::from(vec![
+            Span::styled(name, bold(t.primary)),
+            Span::styled(truncate(&b.title, room), Style::new().fg(t.text)),
+            Span::styled(nsfw, Style::new().fg(t.error)),
+        ])
     };
-    // On a wide screen, in columns as wide as most boards need (a long title is cut), so a
-    // site's boards fit on it.
-    let mut needs: Vec<usize> = app.boards().iter().map(|b| markup::spans_columns(&line(b).spans)).collect();
+    // On a wide screen, in columns as wide as two boards in three need (a longer title is
+    // cut short), so a site's boards fit on it.
+    let mut needs: Vec<usize> = app.boards().iter().map(|b| markup::spans_columns(&line(b, usize::MAX).spans)).collect();
     needs.sort_unstable();
-    let cell = needs.get(needs.len() * 9 / 10).map_or(0, |&w| w as u16 + PAD + 3);
+    let cell = needs.get(needs.len() * 2 / 3).map_or(0, |&w| w as u16 + PAD + 3);
     let cols = area.width.checked_div(cell).map_or(1, usize::from);
     app.drawn.body = if cols > 1 && rows.len() > usize::from(area.height) {
-        draw_cells(f, area, rows.len(), &mut state, (cols, area.width / cols as u16), &mut |k| rows.get(k).and_then(|&i| app.boards().get(i)).map(line).unwrap_or_default())
+        draw_cells(f, area, rows.len(), &mut state, (cols, area.width / cols as u16), &mut |k, fit| rows.get(k).and_then(|&i| app.boards().get(i)).map(|b| line(b, fit)).unwrap_or_default())
     } else {
-        draw_rows(f, area, rows.len(), &mut state, (1, 0), None, &|_| false, &mut |k| rows.get(k).and_then(|&i| app.boards().get(i)).map(line).into_iter().collect())
+        draw_rows(f, area, rows.len(), &mut state, (1, 0), None, &|_| false, &mut |k| rows.get(k).and_then(|&i| app.boards().get(i)).map(|b| line(b, usize::MAX)).into_iter().collect())
     };
     app.list_scrolled(View::Boards, state.offset());
     if app.drawn.body.is_none() && app.tab.loading().is_none() {
@@ -661,6 +666,9 @@ pub(super) fn beside_tile(lines: Vec<Line<'static>>, width: u16) -> Vec<Line<'st
 /// A file's thumbnail in `tile` (`off`: images are off on its board, so a placeholder and
 /// nothing asked for).
 #[allow(clippy::too_many_arguments)]
+/// The biggest file a lost thumbnail is made from, in bytes.
+const THUMB_FROM_FILE_MAX: u64 = 4_000_000;
+
 pub(super) fn draw_tile(f: &mut Frame, images: &mut Images, file: &Attachment, count: usize, off: bool, tile: Rect, clip: Rect) {
     let t = theme();
     let shown = tile.intersection(clip);
@@ -686,11 +694,17 @@ pub(super) fn draw_tile(f: &mut Frame, images: &mut Images, file: &Attachment, c
     if count > 1 {
         let _ = write!(kind, " +{}", count - 1);
     }
-    let Some(url) = file.thumb.as_ref().filter(|_| whole) else {
+    let Some(thumb) = file.thumb.as_ref().filter(|_| whole) else {
         label(f, kind, dim());
         return;
     };
-    match images.get(url, Size::new(tile.width, tile.height), Kind::Thumb) {
+    let size = Size::new(tile.width, tile.height);
+    // A thumbnail the site has lost (old posts on some sites): made from the file instead,
+    // when that's an image small enough to fetch for it.
+    let lost = matches!(images.get(thumb, size, Kind::Thumb), State::Failed);
+    let small = file.is_image() && file.size.is_some_and(|s| s <= THUMB_FROM_FILE_MAX);
+    let url = file.url.as_ref().filter(|_| lost && small).unwrap_or(thumb);
+    match images.get(url, size, Kind::Thumb) {
         State::Ready(p) => {
             let s = p.size();
             let r = Rect::new(tile.x + (tile.width - s.width.min(tile.width)) / 2, tile.y, s.width, s.height);

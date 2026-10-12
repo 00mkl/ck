@@ -22,6 +22,17 @@ pub struct Confirm {
     pub title: &'static str,
     /// What will be written, and where.
     pub lines: Vec<String>,
+    /// `f` saves the files too (a page, whose files aren't all saved).
+    pub files: bool,
+}
+
+/// A thread saved as a page whose files are still being saved: written again once they
+/// are, so its pictures are the saved files and it reads offline.
+pub struct Page {
+    key: ThreadKey,
+    posts: Vec<Post>,
+    url: String,
+    dir: std::path::PathBuf,
 }
 
 /// `1.2 MB`, `340 KB`.
@@ -82,6 +93,7 @@ impl App {
         let Some(t) = &self.tab.thread else { return };
         let dir = download::dir(self.download_dir.as_deref(), t.key());
         let at = tilde(&dir.display().to_string());
+        let mut files = false;
         let (title, lines) = match what {
             Saving::Files => {
                 // Not hidden posts' (unless shown).
@@ -106,23 +118,38 @@ impl App {
                 }
                 ("Save all the thread's files?", vec![first, format!("to {at}")])
             }
-            Saving::Page => (
-                "Save the thread as a page?",
-                vec![format!("thread.html and thread.json ({})", super::plural_posts(t.live_posts().len())), format!("to {at}"), "and a copy in Saved".into()],
-            ),
+            Saving::Page => {
+                let posts: Vec<&Post> = t.unhidden_posts().map(|(_, p)| p).collect();
+                let missing = download::jobs(&posts, &dir).iter().filter(|(_, path)| !path.exists()).count();
+                let mut lines = vec![format!("thread.html and thread.json ({})", super::plural_posts(t.live_posts().len())), format!("to {at}"), "and a copy in Saved".into()];
+                // Files not saved are the site's thumbnails on the page, gone with the thread.
+                if missing > 0 {
+                    files = true;
+                    lines.push(String::new());
+                    lines.push(format!("Pictures are the site's until the files are saved: f saves its {missing} file{} too", if missing == 1 { "" } else { "s" }));
+                }
+                ("Save the thread as a page?", lines)
+            }
         };
-        self.popup = Some(Popup::Confirm(Confirm { what, title, lines }));
+        self.popup = Some(Popup::Confirm(Confirm { what, title, lines, files }));
     }
 
-    /// Keys while a save asks: `enter` (or `y`) saves, anything else cancels.
+    /// Keys while a save asks: `enter` (or `y`) saves, `f` saves a page with its files,
+    /// anything else cancels.
     pub(super) fn on_confirm_key(&mut self, key: KeyEvent) {
         let Some(c) = take_popup!(self, Confirm) else { return };
-        if !matches!(key.code, KeyCode::Enter | KeyCode::Char('y')) {
-            return self.note("Not saved");
-        }
-        match c.what {
-            Saving::Files => self.download(true),
-            Saving::Page => self.export_thread(),
+        match (key.code, c.what) {
+            (KeyCode::Enter | KeyCode::Char('y'), Saving::Files) => self.download(true),
+            (KeyCode::Enter | KeyCode::Char('y'), Saving::Page) => self.export_thread(),
+            (KeyCode::Char('f'), Saving::Page) if c.files => {
+                self.export_thread();
+                let page = self.page();
+                self.download(true);
+                if self.downloads.running > 0 {
+                    self.downloads.page = page.map(Box::new);
+                }
+            }
+            _ => self.note("Not saved"),
         }
     }
 }
@@ -152,6 +179,8 @@ pub struct Downloads {
     pub running: usize,
     pub dir: Option<std::path::PathBuf>,
     pub last_error: Option<String>,
+    /// A page to write again once these are saved.
+    pub page: Option<Box<Page>>,
 }
 
 pub(super) enum DlEvent {
@@ -172,15 +201,27 @@ impl App {
         self.start_download(jobs, dir, &none);
     }
 
+    /// The open thread, to save as a page.
+    fn page(&self) -> Option<Page> {
+        let t = self.tab.thread.as_ref()?;
+        let key = t.key().clone();
+        let url = self.thread_link(&key, None).unwrap_or_default();
+        Some(Page { dir: download::dir(self.download_dir.as_deref(), &key), key, posts: t.live_posts().into_owned(), url })
+    }
+
+    /// Write thread.html and thread.json for `p`.
+    fn write_page(&self, p: &Page) -> anyhow::Result<()> {
+        let about = crate::export::About { site: &p.key.site, board: &p.key.board, thread: p.key.no, url: &p.url, saved: self.clock.now() };
+        crate::export::save(&p.posts, &about, &theme::theme(), &p.dir)
+    }
+
     /// Save the thread as thread.html and thread.json in its download folder.
     fn export_thread(&mut self) {
-        let Some(t) = &self.tab.thread else { return };
-        let (key, dir) = (t.key().clone(), download::dir(self.download_dir.as_deref(), t.key()));
-        let url = self.thread_link(&key, None).unwrap_or_default();
-        let about = crate::export::About { site: &key.site, board: &key.board, thread: key.no, url: &url, saved: self.clock.now() };
+        let (Some(t), Some(page)) = (&self.tab.thread, self.page()) else { return };
+        let (key, dir) = (page.key.clone(), page.dir.clone());
         // As the site has it, like the saved copy it's also kept as (unless it's cut short).
         let whole = self.shown_whole(&key, t);
-        match crate::export::save(&t.live_posts(), &about, &theme::theme(), &dir) {
+        match self.write_page(&page) {
             Ok(()) => {
                 // Also kept as a saved copy, to read in ck (the Saved view).
                 let also = whole.map(|w| self.keep_copy(&key, &w)).map_or("", |()| " (and in Saved)");
@@ -247,7 +288,15 @@ impl App {
                     if d.failed > 0 {
                         let _ = write!(msg, ", {} failed ({})", d.failed, d.last_error.as_deref().unwrap_or(""));
                     }
-                    if d.failed > 0 { self.error(msg) } else { self.info(msg) }
+                    let failed = d.failed > 0;
+                    // The page waiting for them, written again to show them.
+                    if let Some(page) = d.page.take() {
+                        match self.write_page(&page) {
+                            Ok(()) => msg.push_str("; thread.html shows them"),
+                            Err(e) => return self.error(e.context("Couldn't write thread.html again with the saved files")),
+                        }
+                    }
+                    if failed { self.error(msg) } else { self.info(msg) }
                 }
             }
         }

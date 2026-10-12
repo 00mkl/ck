@@ -499,8 +499,9 @@ fn upload(file: &protocol::Upload) -> Result<serde_json::Value, String> {
     let p = std::path::Path::new(&file.path);
     let bytes = std::fs::read(p).map_err(|e| format!("Couldn't read {}: {e}", file.path))?;
     let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "file".into());
+    let kind = protocol::mime(&bytes, &name);
     let data = base64::engine::general_purpose::STANDARD.encode(bytes);
-    Ok(serde_json::json!({ "field": file.field, "name": name, "data": data }))
+    Ok(serde_json::json!({ "field": file.field, "name": name, "type": kind, "data": data }))
 }
 
 /// A painted BGRA frame as a PNG (base64): the part with something on it (not the page's

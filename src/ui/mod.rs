@@ -840,8 +840,9 @@ fn draw_rows(
 }
 
 /// One-line rows in `cols` columns of `width`, row by row, through `state`'s window, the
-/// selected one painted: a list of short rows on a wide screen.
-fn draw_cells(f: &mut Frame, area: Rect, count: usize, state: &mut ListState, (cols, width): (usize, u16), build: &mut dyn FnMut(usize) -> Line<'static>) -> Option<Hit> {
+/// selected one painted: a list of short rows on a wide screen. `build` makes a row to fit
+/// the columns it's given.
+fn draw_cells(f: &mut Frame, area: Rect, count: usize, state: &mut ListState, (cols, width): (usize, u16), build: &mut dyn FnMut(usize, usize) -> Line<'static>) -> Option<Hit> {
     if count == 0 || area.is_empty() {
         return None;
     }
@@ -853,7 +854,9 @@ fn draw_cells(f: &mut Frame, area: Rect, count: usize, state: &mut ListState, (c
         let (r, c) = ((k - off) / cols, (k - off) % cols);
         let cell = Rect::new(area.x + c as u16 * width, area.y + r as u16, width, 1).intersection(area);
         paint_row(f, cell, None, k == sel, false);
-        put(f, cell.x + PAD, cell.y, cell.width.saturating_sub(PAD + 1), build(k));
+        // A row as wide as the cell, a column short of the next.
+        let w = cell.width.saturating_sub(PAD + 1);
+        put(f, cell.x + PAD, cell.y, w, build(k, usize::from(w).saturating_sub(1)));
     }
     Some(Hit::Grid { area, offset: off, cols, cell: (width, 1) })
 }

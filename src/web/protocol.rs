@@ -39,6 +39,47 @@ pub struct Upload {
     pub path: String,
 }
 
+/// A file's MIME type, as a site checks it: by what the file starts with, else by its
+/// name's extension. Sent as `application/octet-stream`, jschan refuses any file.
+pub fn mime(head: &[u8], name: &str) -> &'static str {
+    let at = |i: usize, magic: &[u8]| head.get(i..i + magic.len()) == Some(magic);
+    let brand = head.get(8..12).unwrap_or_default();
+    match () {
+        _ if at(0, b"\xFF\xD8\xFF") => "image/jpeg",
+        _ if at(0, b"\x89PNG") => "image/png",
+        _ if at(0, b"GIF8") => "image/gif",
+        _ if at(0, b"RIFF") && at(8, b"WEBP") => "image/webp",
+        _ if at(0, b"BM") => "image/bmp",
+        _ if at(4, b"ftyp") && (brand == b"avif" || brand == b"avis") => "image/avif",
+        _ if at(4, b"ftyp") && brand == b"qt  " => "video/quicktime",
+        _ if at(4, b"ftyp") => "video/mp4",
+        _ if at(0, b"\x1A\x45\xDF\xA3") => "video/webm",
+        _ if at(0, b"OggS") => "audio/ogg",
+        _ if at(0, b"fLaC") => "audio/flac",
+        _ if at(0, b"ID3") || at(0, b"\xFF\xFB") || at(0, b"\xFF\xF3") => "audio/mpeg",
+        _ if at(0, b"%PDF") => "application/pdf",
+        _ => {
+            let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
+            match ext.as_str() {
+                "jpg" | "jpeg" | "jfif" => "image/jpeg",
+                "png" => "image/png",
+                "gif" => "image/gif",
+                "webp" => "image/webp",
+                "avif" => "image/avif",
+                "mp4" | "m4v" => "video/mp4",
+                "webm" | "mkv" => "video/webm",
+                "mov" => "video/quicktime",
+                "mp3" => "audio/mpeg",
+                "ogg" | "opus" => "audio/ogg",
+                "flac" => "audio/flac",
+                "pdf" => "application/pdf",
+                "txt" => "text/plain",
+                _ => "application/octet-stream",
+            }
+        }
+    }
+}
+
 /// What the helper tells ck.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "is", rename_all = "snake_case")]
