@@ -754,7 +754,7 @@ config, else a new one each run), for deleting them on the site where it lets yo
 Many sites (4chan among them) are behind Cloudflare, which only lets browsers through, so ck
 posts through a browser of its own: ck-web, Chromium (CEF) with no window, which ck starts
 the first time you send a post. ck doesn't come with it (Chromium is too big for crates.io):
-the first ctrl-s asks to download it, about 135 MB, from ck's releases on GitHub (the
+the first ctrl-s asks to download it, about 150 MB, from ck's releases on GitHub (the
 `ck-web-v…` ones, built by the repository's workflow). ck checks the download against the
 SHA-256 it has for that version, and won't use one that differs, then unpacks it in
 `$XDG_DATA_HOME/ck/web/<version>` (default `~/.local/share/ck/web`). A ck that needs a newer
