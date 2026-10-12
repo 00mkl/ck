@@ -116,6 +116,35 @@ pub trait Poster: Send + Sync {
     fn comment_limit(&self) -> Option<usize> {
         None
     }
+    /// The site's paid pass, that posts without a captcha, if it sells one.
+    fn pass(&self) -> Option<Arc<dyn Pass>> {
+        None
+    }
+}
+
+/// A site's paid pass (4chan's 4chan Pass, 2ch's passcode): logged in to through ck-web, from
+/// a page of the site's, so the login is the site's cookie in ck-web's profile. ck keeps no
+/// copy of what's typed.
+pub trait Pass: Send + Sync {
+    /// What the site calls it.
+    fn name(&self) -> &'static str;
+    /// What logging in asks for, in order.
+    fn asks(&self) -> &'static [&'static str];
+    /// The page logging in, checking and logging out go from.
+    fn page(&self) -> String;
+    /// Whether ck-web is logged in with it.
+    fn logged_in(&self, web: &dyn Web) -> Result<bool>;
+    /// Log in with what `asks` asked for, in order; the site's message when it won't.
+    fn log_in(&self, web: &dyn Web, answers: &[String]) -> Result<()>;
+    fn log_out(&self, web: &dyn Web) -> Result<()>;
+}
+
+/// The text of the first element of `class` in an HTML page.
+fn text_of_class(html: &str, class: &str) -> Option<String> {
+    let (_, rest) = html.split_once(&format!("class=\"{class}\""))?;
+    let (_, rest) = rest.split_once('>')?;
+    let text = crate::markup::strip_tags(rest.split("</div>").next()?.split("</h2>").next()?);
+    Some(text.split_whitespace().collect::<Vec<_>>().join(" ")).filter(|t| !t.is_empty())
 }
 
 /// How a site of this config posts, if its engine can.

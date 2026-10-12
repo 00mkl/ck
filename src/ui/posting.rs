@@ -2,7 +2,7 @@
 //! the site wants a person.
 
 use super::*;
-use crate::app::{Art, Compose, Field, Stage, ViewAt, grid_cols};
+use crate::app::{Art, Compose, Field, PassForm, Stage, ViewAt, grid_cols};
 use std::time::Instant;
 use crate::captcha::{Cell, Solving, Task};
 use crate::editor::Editor;
@@ -20,7 +20,10 @@ pub(super) fn draw_reply(f: &mut Frame, app: &mut App) {
         no => format!("Reply to /{}/ No.{no}", c.to.board),
     };
     let hint = match &c.stage {
+        Stage::Writing if c.pass.is_some() => "ctrl-s post · ctrl-p pass · esc keep draft",
         Stage::Writing => "ctrl-s post · tab next · esc keep for later",
+        Stage::Pass(form) if form.logged_in => "y log out · esc back",
+        Stage::Pass(_) => "enter log in · tab next · esc back",
         Stage::Offer => "y download · esc back",
         Stage::Installing { .. } => "esc keep for later",
         Stage::Working => "esc stop",
@@ -47,6 +50,8 @@ pub(super) fn draw_reply(f: &mut Frame, app: &mut App) {
     let (body, foot) = (Rect { height: inner.height - 1, ..inner }, Rect { y: inner.bottom() - 1, height: 1, ..inner });
     if let Some(p) = &c.problem {
         put(f, foot.x, foot.y, foot.width, Line::styled(truncate(p, foot.width as usize), Style::new().fg(t.error)));
+    } else if let Some(n) = &c.note {
+        put(f, foot.x, foot.y, foot.width, Line::styled(truncate(n, foot.width as usize), Style::new().fg(t.primary)));
     }
     c.view_at = None;
     let spin = spinner(*tick);
@@ -77,7 +82,8 @@ pub(super) fn draw_reply(f: &mut Frame, app: &mut App) {
                 fill(f, Rect::new(body.x, body.y + 2, done.min(body.width.saturating_sub(2)), 1), t.primary);
             }
         }
-        Stage::Working => say(f, format!("{spin} Posting to {}…", c.to.site)),
+        Stage::Working => say(f, format!("{spin} {}…", c.doing)),
+        Stage::Pass(form) => draw_pass(f, form, c.pass.unwrap_or_default(), &c.to.site, body),
         Stage::Waiting { until, message } => {
             let left = until.saturating_duration_since(Instant::now()).as_secs();
             say(f, message.clone());
@@ -101,6 +107,40 @@ pub(super) fn draw_reply(f: &mut Frame, app: &mut App) {
             }
         }
         Stage::Solving(_) => draw_captcha(f, images, c, body),
+    }
+}
+
+/// Logging in with the site's pass: what it asks for, as dots; or, logged in, whether to log
+/// out.
+fn draw_pass(f: &mut Frame, form: &PassForm, name: &str, site: &str, area: Rect) {
+    let t = theme();
+    let text = |f: &mut Frame, row: u16, s: String| put(f, area.x, area.y + row, area.width, Line::styled(truncate(&s, area.width as usize), Style::new().fg(t.text)));
+    if form.logged_in {
+        put(f, area.x, area.y, area.width, Line::styled(format!("Logged in with your {name}: posts on {site} skip the captcha."), Style::new().fg(t.primary)));
+        text(f, 2, "Log out? y / n".into());
+        return;
+    }
+    put(f, area.x, area.y, area.width, Line::styled(format!("Log in with your {name}, and posts on {site} skip the captcha."), Style::new().fg(t.primary)));
+    for (i, line) in [
+        format!("ck sends it to {site}'s login page through ck-web and keeps no copy."),
+        format!("{site}'s cookie in ck-web is the login, until you log out (ctrl-p again)."),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        put(f, area.x, area.y + 1 + cells(i), area.width, Line::styled(truncate(&line, area.width as usize), dim()));
+    }
+    for (i, (label, e)) in form.fields.iter().enumerate() {
+        let y = area.y + 4 + cells(i);
+        let focused = i == form.at;
+        put(f, area.x, y, LABEL, Line::styled(*label, if focused { bold(t.primary) } else { dim() }));
+        let w = area.width.saturating_sub(LABEL);
+        fill(f, Rect::new(area.x + LABEL, y, w, 1), t.surface);
+        let mut dots = "•".repeat(e.text().chars().count());
+        if focused {
+            dots.push('▏');
+        }
+        put(f, area.x + LABEL, y, w, Line::styled(truncate(&dots, w as usize), Style::new().fg(t.text)));
     }
 }
 

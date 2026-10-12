@@ -757,6 +757,23 @@ config, else a new one each run), for deleting them on the site where it lets yo
 `esc` closes the box and keeps what's written, per thread, for the next `r` there (pressing
 `r` on other posts adds their quotes). Drafts last until ck quits.
 
+### A 4chan Pass or a 2ch passcode
+
+With a [4chan Pass](https://www.4chan.org/pass) or a 2ch passcode, posts skip the captcha.
+In the reply box on 4chan or 2ch, ctrl-p checks whether ck is logged in with it. If it isn't,
+the box asks for the 4chan Pass's token and PIN, or the 2ch passcode (shown as dots), and
+`enter` logs in. ck sends them to the site's own login page through ck-web (below), as the
+page's form would, and doesn't store them: not in the config, nor anywhere else on disk.
+The login is the site's cookie in ck-web's profile, which lasts (4chan's for a year) until
+you log out: ctrl-p again, then `y`. If the site refuses, the box says why and asks again.
+ck never tries a login again by itself.
+
+Logged in, a post goes without a captcha, as the site's own form sends it. When 4chan won't
+take the Pass right now (in use from another IP, which it allows to change once every 30
+minutes), the box says so, and the post goes on with a captcha. A second ck running at the
+same time uses another ck-web profile (`web-1`), without the login: log in there too, or
+post from the first one.
+
 ### ck-web, and Cloudflare
 
 Many sites (4chan among them) are behind Cloudflare, which only lets browsers through, so ck
@@ -771,8 +788,8 @@ domain with nothing on it (its `robots.txt`: no ads, no scripts of the site's), 
 captcha there and sends the post from there, as the site's own reply form would, with
 Chromium's sandbox on (where the system allows it: Ubuntu since 23.10 keeps it from
 programs like ck-web, which then runs without it). Its profile (cookies, Cloudflare's pass)
-is kept in `$XDG_CACHE_HOME/ck/web`, so the next post usually skips the check; a second ck
-running at once uses `web-1`.
+is kept in `$XDG_CACHE_HOME/ck/web`, with a pass's login, so the next post usually skips the
+check; a second ck running at once uses `web-1`.
 
 When Cloudflare (or 4chan's occasional hCaptcha, or DDoS-Guard) wants a person, the box
 shows the page

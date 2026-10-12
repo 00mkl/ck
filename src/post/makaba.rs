@@ -4,6 +4,7 @@
 //! number whose SHA-512, put in its template, is the hash it gives. Requests use paths of the
 //! page's own host: 2ch.hk sends its pages on to 2ch.su.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -11,7 +12,7 @@ use image::{DynamicImage, Rgba, RgbaImage, imageops};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha512};
 
-use super::{Draft, Posted, Poster, Session, Where, said};
+use super::{Draft, Pass, Posted, Poster, Session, Web, Where, said, text_of_class};
 use crate::captcha::{Cell, Challenge, Task, decode};
 use crate::http::encode_segment as enc;
 use crate::web::{Fetch, Upload};
@@ -26,12 +27,14 @@ impl Makaba {
     /// off.
     fn captcha(&self, s: &Session, board: &str) -> Result<Vec<(String, String)>> {
         'fresh: loop {
-            let v = s.web.fetch(Fetch::get(&format!("/api/captcha/emoji/id?board={}", enc(board))))?.json()?;
+            let r = s.web.fetch(Fetch::get(&format!("/api/captcha/emoji/id?board={}", enc(board))))?;
+            let v = r.json()?;
             if let Some(why) = v.get("banned").or_else(|| v.get("warning")).and_then(Value::as_str) {
                 return Err(said(why));
             }
             match v.get("result").and_then(Value::as_i64) {
-                Some(2 | 3) => return Ok(Vec::new()),
+                // The passcode goes in the form too, as 2ch's own script puts it there.
+                Some(2 | 3) => return Ok(r.cookie(PASSCODE).map(|code| vec![("usercode".into(), code.into())]).unwrap_or_default()),
                 Some(1) => {}
                 _ => bail!("2ch didn't give a captcha now: try again in a moment"),
             }
@@ -59,13 +62,22 @@ impl Poster for Makaba {
         format!("{}/robots.txt", self.root)
     }
 
+    fn pass(&self) -> Option<Arc<dyn Pass>> {
+        Some(Arc::new(Passcode { root: self.root.clone() }))
+    }
+
     fn post(&self, s: &Session, to: &Where, draft: &Draft) -> Result<Posted> {
         let mut fields: Vec<(String, String)> = [("task", "post"), ("usercode", ""), ("code", ""), ("makaka_id", ""), ("makaka_answer", "")].into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         fields.extend([("board".into(), to.board.clone()), ("thread".into(), to.thread.to_string()), ("email".into(), draft.email.clone()), ("name".into(), draft.name.clone()), ("subject".into(), draft.subject.clone()), ("comment".into(), draft.comment.clone())]);
         if draft.sage() {
             fields.push(("sage".into(), "on".into()));
         }
-        fields.extend(self.captcha(s, &to.board)?);
+        for (k, v) in self.captcha(s, &to.board)? {
+            match fields.iter_mut().find(|(name, _)| *name == k) {
+                Some(field) => field.1 = v,
+                None => fields.push((k, v)),
+            }
+        }
         let referer = match to.thread {
             0 => format!("/{}/", enc(&to.board)),
             t => format!("/{}/res/{t}.html", enc(&to.board)),
@@ -74,6 +86,51 @@ impl Poster for Makaba {
         let v = s.web.fetch(Fetch { file, ..Fetch::post("/user/posting?nc=1", fields) }.header("Referer", &referer))?.json()?;
         let (thread, no) = posted(to, &v)?;
         Ok(Posted { thread, no })
+    }
+}
+
+/// 2ch's passcode: logged in to at `/user/passlogin`, which sets this cookie.
+const PASSCODE: &str = "passcode_auth";
+
+pub struct Passcode {
+    pub root: String,
+}
+
+impl Pass for Passcode {
+    fn name(&self) -> &'static str {
+        "2ch passcode"
+    }
+
+    fn asks(&self) -> &'static [&'static str] {
+        &["Passcode"]
+    }
+
+    fn page(&self) -> String {
+        format!("{}/robots.txt", self.root)
+    }
+
+    fn logged_in(&self, web: &dyn Web) -> Result<bool> {
+        Ok(web.fetch(Fetch::get("/robots.txt"))?.cookie(PASSCODE).is_some_and(|c| !c.is_empty()))
+    }
+
+    fn log_in(&self, web: &dyn Web, answers: &[String]) -> Result<()> {
+        let [code] = answers else { bail!("A 2ch passcode is one code") };
+        let r = web.fetch(Fetch::post("/user/passlogin", vec![("passcode".into(), code.trim().into())]).header("Referer", "/user/passlogin"))?;
+        if r.cookie(PASSCODE).is_some_and(|c| !c.is_empty()) {
+            return Ok(());
+        }
+        // Its error page: "Ошибка!" (error), then why.
+        match text_of_class(&r.body, "msg__text") {
+            Some(why) => bail!("{}", why.trim_start_matches("Ошибка!").trim()),
+            None => bail!("2ch didn't log you in (it answered {})", r.status),
+        }
+    }
+
+    fn log_out(&self, web: &dyn Web) -> Result<()> {
+        if web.fetch(Fetch::post("/user/passlogout", Vec::new()))?.cookie(PASSCODE).is_some_and(|c| !c.is_empty()) {
+            bail!("2ch didn't log you out");
+        }
+        Ok(())
     }
 }
 
@@ -170,6 +227,33 @@ mod tests {
         let work = proof_of_work(id.get("challenge").unwrap()).unwrap().to_string();
         assert_eq!((sent.field("emoji_captcha_id"), sent.field("2ch_challenge"), sent.field("comment")), (Some("done-token"), Some(work.as_str()), Some("hi")));
         assert!(matches!(person.shown.borrow().first(), Some(Task::Grid { single: true, .. })));
+    }
+
+    #[test]
+    fn with_a_passcode_a_post_has_no_captcha_and_sends_the_code() {
+        use super::super::fake::{Person, Site, session};
+        let site = Site::default().answers("/api/captcha/emoji/id", 200, r#"{"result":2}"#).sets("passcode_auth=abc").answers("/user/posting", 200, r#"{"result":1,"num":8}"#);
+        let person = Person::default();
+        let to = Where { site: "2ch".into(), board: "test".into(), thread: 5 };
+        Makaba { root: "https://2ch.hk".into() }.post(&session(&site, &person), &to, &Draft::default()).unwrap();
+        let sent = site.sent("/user/posting");
+        assert_eq!((sent.field("usercode"), sent.fields.iter().filter(|(k, _)| k == "usercode").count()), (Some("abc"), 1));
+        assert!(person.shown.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_passcode_logs_in_and_out() {
+        use super::super::fake::Site;
+        let pass = Passcode { root: "https://2ch.hk".into() };
+        let site = Site::default().answers("/user/passlogin", 200, "").sets("passcode_auth=abc");
+        pass.log_in(&site, &[" code ".into()]).unwrap();
+        assert_eq!(site.sent("/user/passlogin").field("passcode"), Some("code"));
+        // 2ch's answer to a wrong one, as it came: "the passcode doesn't exist".
+        let site = Site::default().answers("/user/passlogin", 500, "fixture:makaba_passlogin_wrong.html");
+        assert_eq!(pass.log_in(&site, &["code".into()]).unwrap_err().to_string(), "Пасскод не существует.");
+        let site = Site::default().answers("/robots.txt", 200, "").answers("/user/passlogout", 200, "");
+        assert!(!pass.logged_in(&site).unwrap());
+        pass.log_out(&site).unwrap();
     }
 
     #[test]
