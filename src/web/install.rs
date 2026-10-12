@@ -8,14 +8,14 @@ use anyhow::{Context, Result, ensure};
 use sha2::{Digest, Sha256};
 
 /// The ck-web this ck talks to: its release is `ck-web-v{VERSION}`.
-pub const VERSION: &str = "0.3.0";
+pub const VERSION: &str = "0.3.1";
 const RELEASES: &str = "https://github.com/gold-silver-copper/ck/releases/download";
 /// Each system's bundle, with its SHA-256 (from the release's `.sha256` files).
 const BUNDLES: &[(&str, &str)] = &[
-    ("linux-x86_64", "cbbccff6428ed777b064e2bee9d98b800d418f62e05f7beaea6d16b0f0723137"),
-    ("linux-aarch64", "22e0508cc60ffa55410a6472c223186c72b74b5ec4c4f7d2e937e92b0e2fcbee"),
-    ("macos-x86_64", "fe9e16c6f6e50942921f98ee7b64f868cccc926c282a1cb95c366705191af307"),
-    ("macos-aarch64", "b114bd0e3e87d3d9c879e9cac2cdc060bae8ee06e18ebc816a1d2fdece867efb"),
+    ("linux-x86_64", "720f9a202bb958707f330dfb60a0593a076ea11976817b9c96f736072e7eeccc"),
+    ("linux-aarch64", "2df66220b07866deb5441031ddbabb6e34a66e01b762858b82eb8c41c987654c"),
+    ("macos-x86_64", "954b99a5f272c60ab1617a1b237699c4e7262496d7982e03ac9ac0fc6a99bd9f"),
+    ("macos-aarch64", "5442c9ca7330d49703cf8e5ede78d75242a44605284076868e65d7796893bd6c"),
 ];
 /// ck-web's program in a bundle: on macOS, in its app.
 pub const PROGRAM: &str = if cfg!(target_os = "macos") { "ck-web.app/Contents/MacOS/ck-web" } else { "ck-web" };
