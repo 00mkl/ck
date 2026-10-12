@@ -56,6 +56,11 @@ notify = "auto"
 # Or run a command (no shell; {title} and {body} are filled in):
 # notify_command = ["notify-send", "{title}", "{body}"]
 
+# The program videos play in (no shell; {url} is filled in, or the URL goes at the end).
+# By default mpv if it's installed, else the system's opener. For example VLC, or IINA:
+# video_player = ["vlc", "{url}"]
+# video_player = ["/Applications/IINA.app/Contents/MacOS/iina-cli", "--no-stdin", "{url}"]
+
 # Where ck-web, the browser helper ck posts through, is, if you built your own (by
 # default: the one ck downloads, then next to ck, then on the PATH).
 # web_helper = "~/ck/target/release/ck-web"

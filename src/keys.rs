@@ -124,7 +124,7 @@ actions! {
     JumpForward, "jump_forward", Bind::Menu(Key::ctrl('r')), &[Scope::Global], "forward again, after going back";
     Alternate, "alternate", Bind::Key(Key::ctrl('^')), &[Scope::Global], "the thread you read before this one (again: back)";
     View, "view", menu('v'), &[Scope::Catalog, Scope::Thread, Scope::Gallery], "view the post's images";
-    OpenFile, "open_file", menu('i'), &[Scope::Thread, Scope::Viewer], "open the file outside ck (videos in mpv)";
+    OpenFile, "open_file", menu('i'), &[Scope::Thread, Scope::Viewer], "open the file outside ck (videos in the video player)";
     Replies, "replies", menu('b'), &[Scope::Thread], "jump to the first reply";
     Unread, "unread", menu('U'), &[Scope::Thread], "jump to the first unread post";
     Expand, "expand", menu('e'), &[Scope::Thread], "show / hide the post's replies under it";

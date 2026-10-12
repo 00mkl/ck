@@ -478,6 +478,8 @@ pub struct App {
     notes_since: Option<Instant>,
     pub notify_mode: crate::notify::NotifyMode,
     pub notify_command: Option<Vec<String>>,
+    /// `video_player`: the program videos play in.
+    pub video_player: Option<Vec<String>>,
     /// Notifications sent (the last few), for the record.
     pub notified: Vec<String>,
     /// Sites whose saved board list is being refreshed in the background, and when each was
@@ -655,6 +657,7 @@ impl App {
             notes_since: None,
             notify_mode: cfg.notify,
             notify_command: cfg.notify_command.clone(),
+            video_player: cfg.video_player.clone(),
             notified: Vec::new(),
             boards_refreshing: HashSet::new(),
             boards_tried: HashMap::new(),
@@ -1685,24 +1688,16 @@ impl App {
     /// Open a file externally: videos in mpv when it's installed, everything else in the
     /// default opener; a file the site or archive didn't keep, as its thumbnail.
     pub fn open_file(&mut self, f: &Attachment) {
-        let url = match (f.url.as_deref(), f.kind) {
-            (Some(u), FileKind::Video) if on_path("mpv") && !crate::sandboxed() => u,
-            (Some(u), _) => return self.open_url(u),
-            (None, _) => return match &f.thumb {
-                Some(t) => self.open_link(crate::model::THUMBNAIL_URL, t),
-                None => self.info(NEITHER),
-            },
+        let url = match (f.url.as_deref(), &f.thumb) {
+            (Some(u), _) => u,
+            (None, Some(t)) => return self.open_link(crate::model::THUMBNAIL_URL, t),
+            (None, None) => return self.info(NEITHER),
         };
-        let mut cmd = std::process::Command::new("mpv");
-        cmd.arg(url)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null());
-        #[cfg(unix)]
-        std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
-        match cmd.spawn() {
-            Ok(_) => self.info(format!("Playing {} in mpv", f.filename)),
-            Err(e) => self.error(anyhow::Error::from(e).context("Couldn't start mpv")),
+        let player = if f.kind == FileKind::Video { video_command(self.video_player.as_deref(), || on_path("mpv"), url) } else { None };
+        let Some((program, args)) = player.filter(|_| !crate::sandboxed()) else { return self.open_url(url) };
+        match crate::spawn_detached(&program, args) {
+            Ok(()) => self.info(format!("Playing {} in {program}", f.filename)),
+            Err(e) => self.error(anyhow::Error::from(e).context(format!("Couldn't start {program}"))),
         }
     }
 
@@ -2043,6 +2038,20 @@ pub fn thread_subject(posts: &[Post]) -> String {
     // After the last whole word, unless that leaves little.
     let head = head.rsplit_once(' ').map(|(h, _)| h).filter(|h| h.chars().count() > MOST / 2).unwrap_or(head);
     format!("{}…", head.trim_end())
+}
+
+/// The program and arguments that play the video at `url`: `player` (from the config)
+/// with `{url}` filled in, or the URL added at the end if no argument has it; without one,
+/// mpv if it's installed. `None` leaves it to the system's opener.
+fn video_command(player: Option<&[String]>, has_mpv: impl FnOnce() -> bool, url: &str) -> Option<(String, Vec<String>)> {
+    let Some((program, args)) = player.and_then(|p| p.split_first()) else {
+        return has_mpv().then(|| ("mpv".to_string(), vec![url.to_string()]));
+    };
+    let mut filled: Vec<String> = args.iter().map(|a| a.replace("{url}", url)).collect();
+    if !args.iter().any(|a| a.contains("{url}")) {
+        filled.push(url.to_string());
+    }
+    Some((program.clone(), filled))
 }
 
 pub fn on_path(program: &str) -> bool {

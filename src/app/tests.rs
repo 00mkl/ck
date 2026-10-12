@@ -22,6 +22,23 @@ fn finds_programs_on_path() {
 }
 
 #[test]
+fn a_configured_video_player_wins_and_gets_the_url_as_one_argument() {
+    let url = "https://i.example/a b.webm?x=1&y=$(rm)";
+    let argv = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let cmd = |p: Option<&[&str]>, mpv: bool| super::video_command(p.map(argv).as_deref(), || mpv, url);
+    // Over mpv, with `{url}` filled in where it's asked for, word for word.
+    let iina = ["/Applications/IINA.app/Contents/MacOS/iina-cli", "--no-stdin", "--url={url}"];
+    assert_eq!(cmd(Some(&iina), true), Some((iina[0].into(), argv(&["--no-stdin", &format!("--url={url}")]))));
+    // Or added at the end; the program's name is never filled in.
+    assert_eq!(cmd(Some(&["{url}", "--fullscreen"]), false), Some(("{url}".into(), argv(&["--fullscreen", url]))));
+    // Without one: mpv if it's there, else the system's opener.
+    assert_eq!(cmd(None, true), Some(("mpv".into(), argv(&[url]))));
+    assert_eq!(cmd(None, false), None);
+    // A player that isn't there fails, and nothing else starts.
+    assert!(crate::spawn_detached("ck-no-such-player", argv(&[url])).is_err());
+}
+
+#[test]
 fn mouse_wheel_click_and_double_click() {
     let mut app = test_app();
     let list = Some(Hit::List { area: Rect::new(1, 2, 60, 10), offset: 0, item_height: 1 });

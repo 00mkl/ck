@@ -155,7 +155,7 @@ ones for where you are.
 | `h`/`l`, arrows | previous / next file (animated GIFs play); from a thread, every file in it (or in the conversation shown) |
 | space | pause an animated GIF |
 | `+` / `-` / `0` | zoom in / out (up to 800%) / fit again; zoomed in, `h`/`j`/`k`/`l` and the arrows move around, page up / down change file, `esc` fits |
-| `enter` | open the file externally, videos in mpv if it's installed (its thumbnail, when that's all there is) |
+| `enter` | open the file externally, videos in `video_player` or else mpv if it's installed (its thumbnail, when that's all there is) |
 | `y`  | copy the file's URL (or its thumbnail's) [`copy`] |
 | `d`  | save the file [`download`] |
 | `esc`, `q`, `v` | close |
@@ -949,6 +949,12 @@ All settings are optional; see `config.example.toml` for every option with comme
   [The home screen](#the-home-screen).
 - `notify = "auto" | "bell" | "off"`, `notify_command = [...]`: see
   [Notifications](#notifications).
+- `video_player = ["vlc", "{url}"]`: the program videos play in, run without a shell.
+  `{url}` in an argument is replaced by the video's URL; if no argument has it, the URL is
+  added at the end. Without it, videos play in mpv if it's installed, and otherwise in
+  the system's opener. If the player won't start, ck says so and doesn't try another.
+  For IINA on macOS:
+  `video_player = ["/Applications/IINA.app/Contents/MacOS/iina-cli", "--no-stdin", "{url}"]`.
 - `set_title = false` to leave the terminal's title alone (see
   [Notifications](#notifications)).
 - `[[filter]]`: hide or highlight threads and posts, see [Filters](#filters-and-hiding).
