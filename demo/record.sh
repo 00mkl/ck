@@ -7,13 +7,25 @@
 #
 #   demo/record.sh [out.webm]        (default: ck-demo.webm here, and ck-demo.avif beside it)
 #
-# Needs Hyprland, foot, grim, ffmpeg (with libvpx-vp9, libsvtav1 and libass) and python3; builds ck
-# first. ck gets a scratch config and data directory, so your own sites, watched threads
+# Needs Hyprland, foot, grim, ffmpeg (with libvpx-vp9 and libass, and libsvtav1 or else avifenc)
+# and python3; builds ck first. ck gets a scratch config and data directory, so your own sites, watched threads
 # and history are neither used nor shown. It browses live /g/: watch the result before
 # publishing it.
 #
+# To open with posting, on test boards you may post on: CK_DEMO_CAPTCHA_IN, a thread
+# (`site/board/no`) replied in through its site's captcha; CK_DEMO_POST_IN, one replied in
+# twice with a picture, from CK_DEMO_PICS (a folder with two pictures, each with its
+# comment in a .txt of the same name: say there whose they are and their license).
+# ck then needs ck-web, from CK_DEMO_WEB_HELPER or downloaded as usual. When the site shows a
+# captcha the tour waits: the screen is saved as captcha.png in the working directory, and
+# the answer goes in captcha.answer there (the wait is cut from the video). The posts are
+# sent with the password in post_password there, to delete them afterwards.
+#
+# CK_DEMO_THREAD names the /g/ thread browsed (a number), else the tour picks one from the
+# live catalog: whichever it is, its pictures show in the video.
+#
 # CK_DEMO_PACE (0.7) scales the tour's pauses (1 is slower); CK_DEMO_SPEED (1.2) speeds up
-# the video, captions and all, to keep it under two minutes; CK_DEMO_FPS (20) is the frame
+# the video, captions and all, to keep it short; CK_DEMO_FPS (20) is the frame
 # rate; CK_DEMO_CRF (38) the quality: lower is better and bigger, and 38 keeps the four minutes
 # under GitHub's 10 MB for a video in a README. CK_DEMO_SHOTS=1 keeps a screenshot of the
 # end of each scene, for checking the tour. The working directory (~/.cache/ck-demo) is
@@ -57,6 +69,24 @@ pattern = '(?i)/(aicg|sdg|ldg|adt|de3|dalle|lmg|ai[a-z]*g)/'
 field = "subject"
 label = "AI image generals"
 EOF
+external="CK_NO_EXTERNAL=1"
+posting=
+if [[ -n ${CK_DEMO_POST_IN:-}${CK_DEMO_CAPTCHA_IN:-} ]]; then
+    # Posting goes through ck-web, which CK_NO_EXTERNAL keeps from starting.
+    external=
+    mkdir -p "$work/pics"
+    [[ -z ${CK_DEMO_POST_IN:-} ]] || cp "${CK_DEMO_PICS:?the pictures to post}"/* "$work/pics/"
+    # 16 characters: kissu refuses a longer one.
+    head -c 12 /dev/urandom | base64 | tr -d '/+=' | head -c 16 > "$work/post_password"
+    # At the top: after the [[filter]] tables they'd be a filter's.
+    {
+        echo "post_password = \"$(cat "$work/post_password")\""
+        [[ -n ${CK_DEMO_WEB_HELPER:-} ]] && echo "web_helper = \"$CK_DEMO_WEB_HELPER\""
+        cat "$work/config/ck/config.toml"
+    } > "$work/config/ck/config.new"
+    mv "$work/config/ck/config.new" "$work/config/ck/config.toml"
+    posting="CK_DEMO_CAPTCHA_IN=${CK_DEMO_CAPTCHA_IN:-} CK_DEMO_POST_IN=${CK_DEMO_POST_IN:-} CK_DEMO_PICS=${work/#$HOME/\~}/pics CK_DEMO_CAPTCHA=$work/captcha"
+fi
 
 capture=
 # The pointer as it was, put back on the way out.
@@ -90,7 +120,7 @@ python3 "$here/capture.py" "$output" "$fps" "$work/raw.mkv" "$work/start" &
 capture=$!
 shots=
 [[ -n ${CK_DEMO_SHOTS:-} ]] && shots="CK_DEMO_SHOTS=$work/shots CK_DEMO_OUTPUT=$output"
-cmd="foot --app-id=ck-demo env XDG_CONFIG_HOME=$work/config XDG_DATA_HOME=$work/data XDG_CACHE_HOME=$work/cache CK_NO_EXTERNAL=1 CK_FRAME_DUMP=$work/frame.txt CK_DEMO_LOG=$work/log CK_DEMO_DONE=$work/done CK_DEMO_PACE=${CK_DEMO_PACE:-0.7} $shots CK_BIN=$ck python3 $here/tour.py"
+cmd="foot --app-id=ck-demo env XDG_CONFIG_HOME=$work/config XDG_DATA_HOME=$work/data XDG_CACHE_HOME=$work/cache $external $posting CK_FRAME_DUMP=$work/frame.txt CK_DEMO_LOG=$work/log CK_DEMO_DONE=$work/done CK_DEMO_PACE=${CK_DEMO_PACE:-0.7} ${CK_DEMO_THREAD:+CK_DEMO_THREAD=$CK_DEMO_THREAD} $shots CK_BIN=$ck python3 $here/tour.py"
 hyprctl eval "hl.exec_cmd([[$cmd]], { workspace = '$ws silent', fullscreen = true })" >/dev/null
 
 # Until the tour says it's done, or its window is gone (at most 20 minutes).
@@ -101,6 +131,13 @@ for _ in $(seq 1200); do
         echo "ck demo: the window closed before the tour ended" >&2
         exit 1
     fi
+    # A captcha to answer: its screen, for whoever answers it.
+    if [[ -e $work/captcha.shown && ! -e $work/captcha.png ]]; then
+        sleep 1
+        grim -o "$output" "$work/captcha.png"
+        printf '\n  captcha: see %s, answer in %s\n' "$work/captcha.png" "$work/captcha.answer"
+    fi
+    [[ -e $work/captcha.shown ]] || rm -f "$work/captcha.png"
     if grep -q "	scene	" "$work/log" 2>/dev/null; then
         printf '\r  %s' "$(grep "	scene	" "$work/log" | tail -1 | cut -f3)                    "
     fi
@@ -131,6 +168,14 @@ ffmpeg -loglevel error -stats -y -ss "$from" -to "$to" -i "$work/raw.mkv" \
 echo "Wrote $out ($(du -h "$out" | cut -f1))"
 # The same as an animated AVIF: GitHub shows images in a README, but not videos from the
 # repository.
+# With ffmpeg's libsvtav1, else libavif's avifenc (fed the frames as y4m).
 avif="${out%.*}.avif"
-SVT_LOG=1 ffmpeg -loglevel error -y -i "$out" -c:v libsvtav1 -crf 42 -preset 6 -pix_fmt yuv420p "$avif"
+if ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libsvtav1; then
+    SVT_LOG=1 ffmpeg -loglevel error -y -i "$out" -c:v libsvtav1 -crf 42 -preset 6 -pix_fmt yuv420p "$avif"
+elif command -v avifenc >/dev/null; then
+    ffmpeg -loglevel error -i "$out" -pix_fmt yuv420p -f yuv4mpegpipe - | avifenc --stdin -j 4 -s 7 -q 50 "$avif" >/dev/null
+else
+    echo "ck demo: no AV1 encoder (ffmpeg's libsvtav1, or avifenc), so no $avif" >&2
+    exit 0
+fi
 echo "Wrote $avif ($(du -h "$avif" | cut -f1))"
