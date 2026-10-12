@@ -14,11 +14,15 @@
 #
 # To open with posting, on test boards you may post on: CK_DEMO_CAPTCHA_IN, a thread
 # (`site/board/no`) replied in through its site's captcha; CK_DEMO_POST_IN, one replied in
-# twice with a picture, from CK_DEMO_PICS (a folder with ck-post-1.png and ck-post-2.png).
+# twice with a picture, from CK_DEMO_PICS (a folder with two pictures, each with its
+# comment in a .txt of the same name: say there whose they are and their license).
 # ck then needs ck-web, from CK_DEMO_WEB_HELPER or downloaded as usual. When the site shows a
 # captcha the tour waits: the screen is saved as captcha.png in the working directory, and
 # the answer goes in captcha.answer there (the wait is cut from the video). The posts are
 # sent with the password in post_password there, to delete them afterwards.
+#
+# CK_DEMO_THREAD names the /g/ thread browsed (a number), else the tour picks one from the
+# live catalog: whichever it is, its pictures show in the video.
 #
 # CK_DEMO_PACE (0.7) scales the tour's pauses (1 is slower); CK_DEMO_SPEED (1.2) speeds up
 # the video, captions and all, to keep it short; CK_DEMO_FPS (20) is the frame
@@ -71,7 +75,7 @@ if [[ -n ${CK_DEMO_POST_IN:-}${CK_DEMO_CAPTCHA_IN:-} ]]; then
     # Posting goes through ck-web, which CK_NO_EXTERNAL keeps from starting.
     external=
     mkdir -p "$work/pics"
-    [[ -z ${CK_DEMO_POST_IN:-} ]] || cp "${CK_DEMO_PICS:?the pictures to post}"/ck-post-*.png "$work/pics/"
+    [[ -z ${CK_DEMO_POST_IN:-} ]] || cp "${CK_DEMO_PICS:?the pictures to post}"/* "$work/pics/"
     # 16 characters: kissu refuses a longer one.
     head -c 12 /dev/urandom | base64 | tr -d '/+=' | head -c 16 > "$work/post_password"
     # At the top: after the [[filter]] tables they'd be a filter's.
@@ -116,7 +120,7 @@ python3 "$here/capture.py" "$output" "$fps" "$work/raw.mkv" "$work/start" &
 capture=$!
 shots=
 [[ -n ${CK_DEMO_SHOTS:-} ]] && shots="CK_DEMO_SHOTS=$work/shots CK_DEMO_OUTPUT=$output"
-cmd="foot --app-id=ck-demo env XDG_CONFIG_HOME=$work/config XDG_DATA_HOME=$work/data XDG_CACHE_HOME=$work/cache $external $posting CK_FRAME_DUMP=$work/frame.txt CK_DEMO_LOG=$work/log CK_DEMO_DONE=$work/done CK_DEMO_PACE=${CK_DEMO_PACE:-0.7} $shots CK_BIN=$ck python3 $here/tour.py"
+cmd="foot --app-id=ck-demo env XDG_CONFIG_HOME=$work/config XDG_DATA_HOME=$work/data XDG_CACHE_HOME=$work/cache $external $posting CK_FRAME_DUMP=$work/frame.txt CK_DEMO_LOG=$work/log CK_DEMO_DONE=$work/done CK_DEMO_PACE=${CK_DEMO_PACE:-0.7} ${CK_DEMO_THREAD:+CK_DEMO_THREAD=$CK_DEMO_THREAD} $shots CK_BIN=$ck python3 $here/tour.py"
 hyprctl eval "hl.exec_cmd([[$cmd]], { workspace = '$ws silent', fullscreen = true })" >/dev/null
 
 # Until the tour says it's done, or its window is gone (at most 20 minutes).

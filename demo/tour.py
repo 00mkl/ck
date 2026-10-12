@@ -33,8 +33,9 @@ PACE = float(os.environ.get("CK_DEMO_PACE", "0.7"))
 # Touched by record.sh once it has stopped recording: only then does the tour quit ck, so
 # its window never closes on camera.
 DONE = os.environ.get("CK_DEMO_DONE")
-# Posting, first: the thread replied in (`site/board/no`), and the folder of the pictures
-# posted (`~/` form, typed into the reply box). Without them the tour starts at browsing.
+# Posting, first: the thread replied in (`site/board/no`), and the folder of the two
+# pictures posted, in their names' order, each with the comment its `.txt` beside it has
+# (`~/` form, typed into the reply box). Without them the tour starts at browsing.
 POST_IN = os.environ.get("CK_DEMO_POST_IN")
 # Before that, a reply in this thread (`site/board/no`) through its site's captcha.
 CAPTCHA_IN = os.environ.get("CK_DEMO_CAPTCHA_IN")
@@ -196,28 +197,40 @@ def post(t, comment, pic=None):
     t.pause(0.8)
     if pic:
         t.key("tab")
-        # Up to the picture's number: tab completes the rest.
-        t.type(f"{PICS}/{pic.split('.')[0]}", gap=0.05)
+        # Its name and the extension's first letter: tab completes the rest.
+        t.type(f"{PICS}/{pic[: pic.rindex('.') + 2]}", gap=0.05)
         t.key("tab")
         t.pause(2)
     t.key("ctrl-s")
-    # (What ck says once it's in: the comment can't say it.)
-    t.wait_for("Type the text", "Pick every picture", "Posted No.", timeout=90)
-    screen = t.screen()
-    if "Pick every picture" in screen:
-        t.scene("The site's captcha, in the terminal: pick every picture asked for (1-9), enter sends")
-        t.pause(3.5)
+    shown = False
+    # (What ck says once it's in: the comment can't say it.) A wrong answer leaves the box
+    # saying so: ctrl-s again brings a new captcha.
+    for _ in range(3):
+        t.wait_for("Type the text", "Pick every picture", "Posted No.", timeout=90)
+        screen = t.screen()
+        if "Posted No." in screen:
+            break
+        if not shown:
+            shown = True
+            if "Pick every picture" in screen:
+                t.scene("The site's captcha, in the terminal: pick every picture asked for (1-9), enter sends")
+                t.pause(3.5)
+            else:
+                t.scene("The site's captcha, in the terminal: type what the picture says, enter sends")
+                t.pause(3)
         answer_captcha(t)
-    elif "Type the text" in screen:
-        t.scene("The site's captcha, in the terminal: type what the picture says, enter sends")
-        t.pause(3)
-        answer_captcha(t)
-    t.wait_for("Posted No.", timeout=90)
+        if t.wait_for("Posted No.", "Wrong captcha", timeout=90) and "Wrong captcha" in t.screen():
+            t.pause(1.5)
+            t.key("ctrl-s")
+            continue
+        break
     t.pause(2.5)
 
 
 def tour(t):
-    first, _ = pick_threads()
+    # The thread browsed: CK_DEMO_THREAD if it's set (one whose pictures you've looked at),
+    # else one picked from the live catalog.
+    first = os.environ.get("CK_DEMO_THREAD") or pick_threads()[0]
 
     # The video starts with the first scene: by then the pointer Hyprland draws on a new
     # monitor has timed out.
@@ -244,14 +257,17 @@ def tour(t):
         t.key("enter")
         t.wait_for(" post", timeout=30, top=True)
         t.pause(1.5)
+        folder = os.path.expanduser(PICS)
+        pics = sorted(f for f in os.listdir(folder) if not f.endswith(".txt"))
+        said = lambda pic: open(os.path.join(folder, pic.rsplit(".", 1)[0] + ".txt")).read().strip()
         n = posts_shown(t)
-        post(t, "Sent from ck, in a terminal.", "ck-post-1.png")
+        post(t, said(pics[0]), pics[0])
         t.scene("There it is, picture and all")
         reload_until(t, n + 1)
         t.key("G")
         t.pause(3)
         t.scene("Another, with another picture")
-        post(t, "And another one, right after.", "ck-post-2.png")
+        post(t, said(pics[1]), pics[1])
         reload_until(t, n + 2)
         t.key("G")
         t.pause(1.5)
