@@ -4,10 +4,13 @@
 //! (Cloudflare's check, hCaptcha), it sends what the page shows, and ck sends the clicks.
 //!
 //! CEF starts its other processes (renderer, GPU, network) from this same program, with a
-//! `--type` switch: `execute_process` runs those and returns.
+//! `--type` switch: `execute_process` runs those and returns. (On macOS, from copies of it in
+//! the app bundle's helper apps: `mac.rs`.)
 
 #[path = "../../src/web/protocol.rs"]
 mod protocol;
+#[cfg(target_os = "macos")]
+mod mac;
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -179,10 +182,23 @@ wrap_client! {
 }
 
 fn main() -> ExitCode {
-    let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
     let args = Args::new();
+    #[cfg(target_os = "macos")]
+    let _loaded = match mac::load(&args, std::env::args().any(|a| a.starts_with("--type="))) {
+        Ok(loaded) => loaded,
+        Err(e) => {
+            eprintln!("ck-web: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let _ = api_hash(sys::CEF_API_VERSION_LAST, 0);
     let Some(line) = args.as_cmd_line() else { return ExitCode::FAILURE };
     let browser_process = line.has_switch(Some(&CefString::from("type"))) != 1;
+    #[cfg(target_os = "macos")]
+    if browser_process && let Err(e) = mac::application() {
+        eprintln!("ck-web: {e}");
+        return ExitCode::FAILURE;
+    }
     let mut app = AppBuilder::new(WebApp);
     let code = execute_process(Some(args.as_main_args()), Some(&mut app), std::ptr::null_mut());
     if !browser_process {
@@ -528,8 +544,19 @@ fn free_profile(base: &std::path::Path) -> Option<(PathBuf, std::fs::File)> {
 /// and process ("host-1234"), and that process is alive.
 fn chromium_in(dir: &std::path::Path) -> bool {
     let Ok(link) = std::fs::read_link(dir.join("SingletonLock")) else { return false };
-    let pid = link.to_string_lossy().rsplit_once('-').and_then(|(_, pid)| pid.parse::<u32>().ok());
-    pid.is_some_and(|pid| std::path::Path::new(&format!("/proc/{pid}")).exists())
+    let pid = link.to_string_lossy().rsplit_once('-').and_then(|(_, pid)| pid.parse::<i32>().ok());
+    pid.is_some_and(|pid| pid > 0 && alive(pid))
+}
+
+#[cfg(unix)]
+fn alive(pid: i32) -> bool {
+    // SAFETY: signal 0 sends nothing; it only asks whether the process is there.
+    unsafe { libc::kill(pid, 0) == 0 }
+}
+
+#[cfg(not(unix))]
+fn alive(_pid: i32) -> bool {
+    false
 }
 
 /// Whether Chromium's sandbox can start: it needs user namespaces, which Ubuntu (since

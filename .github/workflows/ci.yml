@@ -31,7 +31,7 @@ jobs:
         run: cargo test
 
   # The browser helper (Chromium through CEF, downloaded by its build): its own job, so ck's
-  # stays quick. Linux only for now.
+  # stays quick.
   ck-web:
     runs-on: ubuntu-latest
     steps:
@@ -44,3 +44,26 @@ jobs:
       - name: Clippy
         run: cargo clippy -p ck-web -- -D warnings
 
+
+  # On macOS, ck-web runs from its app (ck-web/bundle-macos.sh): made, started, and asked
+  # for a page, which its script (in Chromium's renderer, a helper app) says is ready.
+  ck-web-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: brew install ninja
+      - name: Clippy
+        run: cargo clippy -p ck-web -- -D warnings
+      - run: cargo build -p ck-web
+      - run: sh ck-web/bundle-macos.sh target/debug
+      - name: It opens a page
+        run: |
+          export CK_WEB_PROFILE="$RUNNER_TEMP/profile"
+          { echo '{"do":"open","url":"https://example.com/"}'; sleep 120; } | target/debug/ck-web.app/Contents/MacOS/ck-web > out.txt 2> err.txt &
+          for _ in $(seq 90); do grep -q '"ready"' out.txt && break; sleep 1; done
+          cat out.txt; tail -n 20 err.txt; tail -n 40 "$CK_WEB_PROFILE/log.txt" || true
+          grep -q '"ready"' out.txt

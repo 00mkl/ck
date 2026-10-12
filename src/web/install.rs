@@ -15,6 +15,8 @@ const BUNDLES: &[(&str, &str)] = &[
     ("linux-x86_64", "b324a92292ca53e14c3a6d0708dc70d6aeb8d8e15c2af7324aa82ce062022064"),
     ("linux-aarch64", "355707430f63e7c38f5c2dc98808889d0f0215578fffe50b627068c25370f587"),
 ];
+/// ck-web's program in a bundle: on macOS, in its app.
+pub const PROGRAM: &str = if cfg!(target_os = "macos") { "ck-web.app/Contents/MacOS/ck-web" } else { "ck-web" };
 /// About how big a bundle is, in megabytes, to say before downloading it.
 pub const SIZE_MB: u64 = 135;
 
@@ -31,7 +33,7 @@ fn dir() -> Option<PathBuf> {
 
 /// ck-web as downloaded, if it is.
 pub fn installed() -> Option<PathBuf> {
-    let path = dir()?.join(VERSION).join("ck-web");
+    let path = dir()?.join(VERSION).join(PROGRAM);
     path.is_file().then_some(path)
 }
 

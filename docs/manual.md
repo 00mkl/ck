@@ -778,11 +778,13 @@ lets these load even on sites whose pages forbid other hosts' scripts (it loads 
 the site's pages and the captcha). A bot check that works itself out (ptch.net's) shows a
 moment, then goes.
 
-The download is for Linux (x86_64 and ARM). Elsewhere, or to use your own build, build it
-from the repository with `cargo build --release -p ck-web` (it needs cmake and ninja) and
-point `web_helper` at `target/release/ck-web`, or run ck from that folder. If ck-web stops
-(a library Chromium needs is missing, say), the box shows the last thing it said. macOS
-needs an app bundle, which isn't made yet.
+The download is for Linux and macOS (x86_64 and ARM each). Elsewhere, or to use your own
+build, build it from the repository with `cargo build --release -p ck-web` (it needs cmake
+and ninja) and point `web_helper` at `target/release/ck-web`, or run ck from that folder.
+On macOS, Chromium only runs from an app: `sh ck-web/bundle-macos.sh` then makes
+`target/release/ck-web.app`, and `web_helper` points at
+`target/release/ck-web.app/Contents/MacOS/ck-web`. If ck-web stops (a library Chromium needs
+is missing, say), the box shows the last thing it said.
 
 ## Searching archives
 
