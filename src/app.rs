@@ -197,7 +197,8 @@ pub enum Hit {
     List { area: Rect, offset: usize, item_height: u16 },
     /// The thread: its area, and the line drawn at its top.
     Thread { area: Rect, scroll: usize },
-    /// The catalog grid: its area, first visible item, columns, and cell size.
+    /// A grid (the catalog's, or boards in columns): its area, first visible item, columns,
+    /// and cell size.
     Grid { area: Rect, offset: usize, cols: usize, cell: (u16, u16) },
     /// The settings screen, laid out as `settings::rows()` from `offset`; or, with a filter
     /// (`headers` false), the settings it shows, a row each.
@@ -789,7 +790,14 @@ impl App {
 
     pub fn visible_boards(&self) -> Vec<usize> {
         // As listed, "/b/ Random": "/b", "/b/" and "b" all find it.
-        filtered(&self.tab.board_list.filter, self.boards(), |b| format!("/{}/ {}", b.uri, b.title))
+        let mut rows = filtered(&self.tab.board_list.filter, self.boards(), |b| format!("/{}/ {}", b.uri, b.title));
+        // The board named so first, then those whose names start so, then the rest: `g` is
+        // /g/, not /3/ "3DCG".
+        let name = self.tab.board_list.filter.trim_matches('/').to_lowercase();
+        if !name.is_empty() {
+            rows.sort_by_key(|&i| self.boards().get(i).map(|b| b.uri.to_lowercase()).map_or(2, |uri| if uri == name { 0 } else if uri.starts_with(&name) { 1 } else { 2 }));
+        }
+        rows
     }
 
     pub fn visible_catalog(&self) -> Vec<usize> {
@@ -850,7 +858,7 @@ impl App {
         ((screen, tabs) == (self.screen(), self.tabs.len())).then_some(&self.drawn)
     }
 
-    /// The columns of the grid (catalog or gallery) the last frame drew (`Some(None)`: none),
+    /// The columns of the grid (catalog, boards or gallery) the last frame drew (`Some(None)`: none),
     /// while its screen still shows: only the screen (layout included) and its size decide them.
     pub(super) fn drawn_cols(&self) -> Option<Option<usize>> {
         self.drawn_here().map(|d| match d.body {
@@ -1141,7 +1149,12 @@ impl App {
 
     /// Say something in the footer for a moment (unless an error is waiting to be seen).
     pub fn info(&mut self, text: impl Into<String>) {
-        self.footer.say(Status { text: text.into(), error: false });
+        self.footer.say(Status { text: text.into(), error: false, note: false });
+    }
+
+    /// Say how things are, when nothing was done: nothing found, nothing to do.
+    pub fn note(&mut self, text: impl Into<String>) {
+        self.footer.say(Status { text: text.into(), error: false, note: true });
     }
 
     /// The tab's load failed: say so, and keep saying it where what it loads would be.
@@ -1153,7 +1166,7 @@ impl App {
 
     /// Say something went wrong (shown a little longer).
     pub fn error(&mut self, e: impl Into<Problem>) {
-        self.footer.say(Status { text: e.into().0, error: true });
+        self.footer.say(Status { text: e.into().0, error: true, note: false });
     }
 
     /// What was saved to the config, or `done` until ck quits because it couldn't be; whether
@@ -1241,8 +1254,8 @@ impl App {
             _ => return,
         };
         match mark {
-            Some(Hidden::ByFilter(label)) => return self.info(format!("Hidden by the filter \"{label}\"; Settings › Filters changes it")),
-            Some(Hidden::Reply(to)) => return self.info(format!("Hidden as a reply to No.{to}, which is hidden; unhiding that one shows it")),
+            Some(Hidden::ByFilter(label)) => return self.note(format!("Hidden by the filter \"{label}\"; Settings › Filters changes it")),
+            Some(Hidden::Reply(to)) => return self.note(format!("Hidden as a reply to No.{to}, which is hidden; unhiding that one shows it")),
             _ => {}
         }
         let (no, hidden) = (key.no, self.rehide(|a| a.store.toggle_hidden(&key.site, &key.board, key.no)));
@@ -1357,6 +1370,7 @@ impl App {
             }
             _ => return,
         };
+        let name = thread_name(key.no, &subject);
         // Unwatching forgets which posts are yours; watching changes nothing hidden.
         let watching = self.store.watch(key.clone(), subject, posts, last_seen);
         if !watching {
@@ -1371,7 +1385,7 @@ impl App {
             self.watched_checked.remove(&key);
         }
         self.watched_quiet.remove(&key);
-        self.info(if watching { format!("Watching thread {}", key.no) } else { format!("Stopped watching thread {}", key.no) });
+        self.info(if watching { format!("Watching {name}") } else { format!("Stopped watching {name}") });
         self.save_now();
     }
 
@@ -1394,7 +1408,7 @@ impl App {
                 let esc = if capped { format!(" (the nearest {n}; there are more)") } else { String::new() };
                 self.info(format!("{}{esc}; esc shows the whole thread", plural_posts(n)));
             }
-            Err(e) => self.info(e),
+            Err(e) => self.note(e),
         }
     }
 
@@ -1410,7 +1424,7 @@ impl App {
                 let id = t.conversation.as_ref().and_then(|c| c.poster.clone()).unwrap_or_default();
                 self.info(format!("{} by ID:{id}; esc shows the whole thread", plural_posts(n)));
             }
-            Err(e) => self.info(e),
+            Err(e) => self.note(e),
         }
     }
 
@@ -1418,7 +1432,7 @@ impl App {
     fn cycle_media(&mut self) {
         let Some(t) = self.reading() else { return };
         if t.media == Media::All && t.posts.iter().all(|p| p.files.is_empty()) {
-            return self.info("No post here has a file");
+            return self.note("No post here has a file");
         }
         let next = t.media.next();
         let n = t.set_media(next);
@@ -1585,7 +1599,7 @@ impl App {
             from.pop();
         }
         let Some(there) = from.pop() else {
-            self.info(if back { "Nothing to go back to" } else { "Nothing to go forward to" });
+            self.note(if back { "Nothing to go back to" } else { "Nothing to go forward to" });
             return false;
         };
         if let Some(here) = here {
@@ -1686,7 +1700,7 @@ impl App {
     fn open_viewer(&mut self) {
         if !self.images.enabled() {
             let open = self.keys.how(Action::OpenFile);
-            self.info(format!("Images are off (images = \"off\" in the config); {open} opens the file"));
+            self.note(format!("Images are off (images = \"off\" in the config); {open} opens the file"));
             return;
         }
         if self.images_off_here() {
@@ -1699,7 +1713,7 @@ impl App {
                     self.tab.popup = Some(TabPopup::Viewer(Viewer::new(files, 0, link)));
                 }
             }
-            _ => self.info("Post has no file"),
+            _ => self.note("Post has no file"),
         }
     }
 
@@ -1709,7 +1723,7 @@ impl App {
         let url = match (f.url.as_deref(), &f.thumb) {
             (Some(u), _) => u,
             (None, Some(t)) => return self.open_link(crate::model::THUMBNAIL_URL, t),
-            (None, None) => return self.info(NEITHER),
+            (None, None) => return self.note(NEITHER),
         };
         let player = if f.kind == FileKind::Video { video_command(self.video_player.as_deref(), || on_path("mpv"), url) } else { None };
         let Some((program, args)) = player.filter(|_| !crate::sandboxed()) else { return self.open_url(url) };
@@ -1747,7 +1761,7 @@ impl App {
                 let Some(w) = self.store.all_watched().get(i).cloned() else { return };
                 // As w does: its (You) marks go from every tab.
                 self.rehide(|a| a.store.unwatch(&w.key));
-                self.info(format!("Stopped watching thread {} · u undoes", w.key.no));
+                self.info(format!("Stopped watching {} · u undoes", thread_name(w.key.no, &w.subject)));
                 self.undo = Some(Undo::Watched(i, Box::new(w)));
             }
             View::History => {
@@ -1946,7 +1960,7 @@ impl App {
                 post_link.map(|l| ("link", l))
             } else {
                 let Some(f) = v.files.get(v.index) else { return };
-                let Some((what, u)) = f.link() else { return self.info(NEITHER) };
+                let Some((what, u)) = f.link() else { return self.note(NEITHER) };
                 Some((what, u.to_string()))
             }
         } else if link {
@@ -1965,7 +1979,7 @@ impl App {
         };
         let Some((what, text)) = what else { return };
         if text.is_empty() {
-            self.info("Nothing to copy: the post has no text");
+            self.note("Nothing to copy: the post has no text");
             return;
         }
         self.copy_text(what, text);
@@ -2044,6 +2058,17 @@ fn plural_posts(n: usize) -> String {
 
 /// A thread's subject for lists: its subject, or the start of the OP's text (its first 80
 /// characters or so, cut after a word and ending in "…" when there's more).
+/// A thread as a message names it: its subject (cut short), else its number.
+pub fn thread_name(no: u64, subject: &str) -> String {
+    const MOST: usize = 40;
+    let subject = subject.trim();
+    match subject.char_indices().nth(MOST) {
+        _ if subject.is_empty() => format!("thread {no}"),
+        Some((cut, _)) => format!("“{}…”", subject.get(..cut).unwrap_or(subject).trim_end()),
+        None => format!("“{subject}”"),
+    }
+}
+
 pub fn thread_subject(posts: &[Post]) -> String {
     const MOST: usize = 80;
     let Some(op) = posts.first() else { return String::new() };

@@ -214,8 +214,7 @@ pub(super) fn draw_boards(f: &mut Frame, app: &mut App, area: Rect) {
     let width = app.boards().iter().map(|b| markup::columns(&b.uri)).max().unwrap_or(1) + 4;
     let rows = app.visible_boards();
     let mut state = app.list_state(View::Boards);
-    app.drawn.body = draw_rows(f, area, rows.len(), &mut state, (1, 0), None, &|_| false, &mut |k| {
-        let Some(b) = rows.get(k).and_then(|&i| app.boards().get(i)) else { return Vec::new() };
+    let line = |b: &crate::model::Board| {
         let mut spans = vec![
             Span::styled(pad(&format!("/{}/", b.uri), width), bold(t.primary)),
             Span::styled(b.title.clone(), Style::new().fg(t.text)),
@@ -223,8 +222,19 @@ pub(super) fn draw_boards(f: &mut Frame, app: &mut App, area: Rect) {
         if b.nsfw == Some(true) {
             spans.push(Span::styled("  nsfw", Style::new().fg(t.error)));
         }
-        vec![Line::from(spans)]
-    });
+        Line::from(spans)
+    };
+    // On a wide screen, in columns as wide as most boards need (a long title is cut), so a
+    // site's boards fit on it.
+    let mut needs: Vec<usize> = app.boards().iter().map(|b| markup::spans_columns(&line(b).spans)).collect();
+    needs.sort_unstable();
+    let cell = needs.get(needs.len() * 9 / 10).map_or(0, |&w| w as u16 + PAD + 3);
+    let cols = area.width.checked_div(cell).map_or(1, usize::from);
+    app.drawn.body = if cols > 1 && rows.len() > usize::from(area.height) {
+        draw_cells(f, area, rows.len(), &mut state, (cols, area.width / cols as u16), &mut |k| rows.get(k).and_then(|&i| app.boards().get(i)).map(line).unwrap_or_default())
+    } else {
+        draw_rows(f, area, rows.len(), &mut state, (1, 0), None, &|_| false, &mut |k| rows.get(k).and_then(|&i| app.boards().get(i)).map(line).into_iter().collect())
+    };
     app.list_scrolled(View::Boards, state.offset());
     if app.drawn.body.is_none() && app.tab.loading().is_none() {
         empty(f, area, app.tab.failed.as_deref().unwrap_or("No boards"));
@@ -304,11 +314,12 @@ pub(super) fn draw_catalog(f: &mut Frame, app: &mut App, area: Rect) {
             }
             // How old it is, and (when it has replies) how long since the last: an old thread
             // can be the liveliest.
+            let old = format!("{} old", ago(p.time, app.clock).trim_end_matches(" ago"));
             match last_reply(p) {
-                Some(at) if level == 0 => facts.extend([format!("{} old", ago(p.time, app.clock).trim_end_matches(" ago")), format!("last reply {}", ago(at, app.clock))]),
+                Some(at) if level == 0 => facts.extend([old, format!("last reply {}", ago(at, app.clock))]),
                 Some(at) if level == 1 => facts.push(format!("last reply {}", ago(at, app.clock))),
                 Some(at) => facts.push(ago(at, app.clock)),
-                None => facts.push(ago(p.time, app.clock)),
+                None => facts.push(old),
             }
             facts.join(" · ")
         };

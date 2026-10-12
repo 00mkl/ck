@@ -417,7 +417,7 @@ impl App {
             return self.error("A hidden word needs a letter or two");
         }
         if self.hidden_words.iter().any(|w| w.eq_ignore_ascii_case(&word)) {
-            return self.info(format!("\"{word}\" is already hidden"));
+            return self.note(format!("\"{word}\" is already hidden"));
         }
         self.hidden_words.push(word.clone());
         let saved = self.write_hidden_words();

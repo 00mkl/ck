@@ -14,7 +14,7 @@ impl App {
     pub(super) fn set_mark(&mut self, name: char) {
         let here = self.tab.thread.as_ref().filter(|_| self.tab.view() == View::Thread).and_then(|t| Some((t.key().clone(), t.current()?.no)));
         let Some((key, post)) = here else {
-            self.info("Marks are set on a thread's posts");
+            self.note("Marks are set on a thread's posts");
             return;
         };
         let marks = &mut self.store.recall.marks;
@@ -40,14 +40,14 @@ impl App {
                 (true, false) => format!("Mark {name} is a thread's: open the thread, or use an uppercase mark (m{})", name.to_ascii_uppercase()),
                 _ => format!("No mark {name}"),
             };
-            self.info(msg);
+            self.note(msg);
             return;
         };
         if key.as_ref() == Some(&mark.key) {
             if let Some(t) = &mut self.tab.thread
                 && !t.jump_to(mark.post)
             {
-                self.info(format!("No.{} (mark {name}) isn't in the thread any more", mark.post));
+                self.note(format!("No.{} (mark {name}) isn't in the thread any more", mark.post));
             }
             return;
         }
@@ -66,7 +66,7 @@ impl App {
     pub(super) fn alternate(&mut self) {
         let here = self.tab.thread.as_ref().filter(|_| self.tab.view() == View::Thread).map(|t| t.key().clone());
         let Some(key) = self.store.history.iter().map(|v| &v.key).find(|k| Some(*k) != here.as_ref()).cloned() else {
-            self.info("No other thread read yet");
+            self.note("No other thread read yet");
             return;
         };
         let back = Some(self.tab.place_view());

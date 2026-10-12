@@ -364,9 +364,9 @@ impl App {
             Nav::Esc if !self.filter(view).is_empty() => self.edit_filter(view, String::clear),
             Nav::Esc => self.back(),
             // A count stops at the grid's edge rather than going on to mean back.
-            _ if view == View::Catalog && self.on_grid_key(nav) => {
+            _ if matches!(view, View::Catalog | View::Boards) && self.on_grid_key(view, nav) => {
                 for _ in 1..n {
-                    if !self.on_grid_key(nav) {
+                    if !self.on_grid_key(view, nav) {
                         break;
                     }
                 }
@@ -451,7 +451,7 @@ impl App {
             Action::Conversation => self.toggle_conversation(),
             Action::Poster => self.toggle_poster(),
             Action::Media => self.cycle_media(),
-            Action::Browser | Action::Copy if self.focused_file().is_some_and(|f| f.link().is_none()) => self.info(super::NEITHER),
+            Action::Browser | Action::Copy if self.focused_file().is_some_and(|f| f.link().is_none()) => self.note(super::NEITHER),
             Action::Browser => match self.focused_url() {
                 Some((what, url)) => self.open_link(what, &url),
                 None => self.open_in_browser(),
@@ -496,7 +496,7 @@ impl App {
                 if let Some(t) = &mut self.tab.thread {
                     match t.toggle_expanded() {
                         Ok(_) => {}
-                        Err(msg) => self.info(msg),
+                        Err(msg) => self.note(msg),
                     }
                 }
             }
@@ -524,7 +524,7 @@ impl App {
                     self.open_key(&key);
                     self.tab.return_to = None;
                 }
-                None => self.info("Nothing to open in an archive"),
+                None => self.note("Nothing to open in an archive"),
             },
             Action::OpenFile
             | Action::Replies
@@ -546,17 +546,18 @@ impl App {
         }
     }
 
-    /// Moving in the catalog grid: down and up by rows, left and right by columns (left in
-    /// the first column goes back, as in lists), as the grid was last drawn; before a grid's
-    /// first frame, by one card. Returns whether the key was one of those.
-    fn on_grid_key(&mut self, nav: Nav) -> bool {
+    /// Moving in a grid (the catalog's, or the boards in columns): down and up by rows, left
+    /// and right by columns (left in the first column goes back, as in lists), as the grid
+    /// was last drawn; before a catalog grid's first frame, by one card. Returns whether the
+    /// key was one of those.
+    fn on_grid_key(&mut self, view: View, nav: Nav) -> bool {
         let (cols, edges) = match self.drawn_cols() {
             Some(Some(cols)) => (cols as isize, true),
-            None if self.layout() == CatalogLayout::Grid => (1, false),
+            None if view == View::Catalog && self.layout() == CatalogLayout::Grid => (1, false),
             _ => return false,
         };
-        let len = self.visible_catalog().len();
-        let cur = self.selected_row(View::Catalog).unwrap_or(0) as isize;
+        let len = self.row_keys(view).len();
+        let cur = self.selected_row(view).unwrap_or(0) as isize;
         let delta = match nav {
             Nav::Down => cols,
             Nav::Up => -cols,
@@ -568,7 +569,7 @@ impl App {
         // Down from the last full row goes to the last thread; past either end, nowhere.
         let last_row = delta == cols && cur + cols >= len as isize && cur / cols < (len as isize - 1) / cols;
         if let Ok(to) = usize::try_from(if last_row { len as isize - 1 } else { cur + delta }) {
-            self.pick_row(View::Catalog, to);
+            self.pick_row(view, to);
         }
         true
     }
@@ -658,8 +659,8 @@ impl App {
             (Pending::CountG(n), KeyCode::Char('t')) => {
                 match self.tabs.len() {
                     tabs if n.get() <= tabs => self.show_tab(n.get() - 1),
-                    1 => self.info(format!("There's no tab {n}: one is open")),
-                    tabs => self.info(format!("There's no tab {n}: {tabs} are open")),
+                    1 => self.note(format!("There's no tab {n}: one is open")),
+                    tabs => self.note(format!("There's no tab {n}: {tabs} are open")),
                 }
                 None
             }
@@ -685,7 +686,7 @@ impl App {
                 None
             }
             (Pending::Mark | Pending::GoToMark, _) => {
-                self.info("A mark is a letter: a-z in this thread, A-Z in any");
+                self.note("A mark is a letter: a-z in this thread, A-Z in any");
                 None
             }
             _ => return false,
@@ -782,7 +783,7 @@ impl App {
             Action::Preview => self.open_preview(),
             Action::NextMatch | Action::PrevMatch if t.matches.is_empty() => {
                 let msg = if t.search.is_empty() { format!("No search; press {search_key} to search the thread") } else { "No matches".into() };
-                self.info(msg);
+                self.note(msg);
             }
             Action::NextMatch | Action::PrevMatch => {
                 if let Some(i) = t.next_match(action == Action::NextMatch) {
@@ -804,7 +805,7 @@ impl App {
                 Some(&no) => {
                     t.jump_to(no);
                 }
-                None => self.info("No replies to this post"),
+                None => self.note("No replies to this post"),
             },
             // Back to the post jumped from, or forward again; else to the thread before or after.
             Action::JumpBack | Action::JumpForward => {
@@ -817,11 +818,11 @@ impl App {
             }
             Action::Unread => match (0..t.posts.len()).find(|&i| t.is_new(i)) {
                 Some(i) => t.jump(i),
-                None => self.info("No unread posts"),
+                None => self.note("No unread posts"),
             },
             Action::OpenFile => match t.current().and_then(|p| p.files.first()).cloned() {
                 Some(f) => self.open_file(&f),
-                None => self.info("Post has no file"),
+                None => self.note("Post has no file"),
             },
             _ => {}
         }
@@ -848,15 +849,18 @@ impl App {
                 self.typing = None;
                 super::command::keep(&mut self.store.recall.searches, &t.search);
                 self.save_pending = true;
-                let msg = match t.next_match(true) {
+                match t.next_match(true) {
                     Some(i) => {
                         t.select(i);
-                        format!("{} {} \"{}\" (n/N to move)", super::plural_posts(t.matches.len()), if t.matches.len() == 1 { "matches" } else { "match" }, t.search)
+                        let msg = format!("{} {} \"{}\" (n/N to move)", super::plural_posts(t.matches.len()), if t.matches.len() == 1 { "matches" } else { "match" }, t.search);
+                        self.info(msg);
                     }
-                    None if t.search.is_empty() => return,
-                    None => format!("No posts match \"{}\"", t.search),
-                };
-                self.info(msg);
+                    None if t.search.is_empty() => {}
+                    None => {
+                        let msg = format!("No posts match \"{}\"", t.search);
+                        self.note(msg);
+                    }
+                }
             }
             _ => {
                 let mut q = t.search.clone();
@@ -874,7 +878,7 @@ impl App {
         let posts: Vec<u64> = p.quotes.iter().copied().filter(|q| t.index.contains_key(q)).collect();
         let links: Vec<crate::model::Link> = p.links.iter().filter(|l| l.post.is_some_and(|n| !t.index.contains_key(&n))).cloned().collect();
         if posts.is_empty() && links.is_empty() {
-            self.info("Post quotes nothing");
+            self.note("Post quotes nothing");
             return;
         }
         let elsewhere = links.into_iter().map(|l| {

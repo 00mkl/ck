@@ -205,7 +205,7 @@ impl App {
             matches = vec![site];
         }
         match matches.as_slice() {
-            [] => self.info(format!("Nothing starts with \"{partial}\"")),
+            [] => self.note(format!("Nothing starts with \"{partial}\"")),
             [one] => {
                 let slash = if sites && self.site_index(one).is_some() { "/" } else { "" };
                 self.typing = Some(super::Typing::Goto(format!("{prefix}{one}{slash}")));
@@ -219,7 +219,7 @@ impl App {
                 }
                 let shown: Vec<&str> = many.iter().take(10).map(|s| s.as_str()).collect();
                 let more = if many.len() > 10 { format!(" (+{})", many.len() - 10) } else { String::new() };
-                self.info(format!("{}{more}", shown.join("  ")));
+                self.note(format!("{}{more}", shown.join("  ")));
             }
         }
     }

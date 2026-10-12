@@ -1756,19 +1756,19 @@ fn huge_counts_from_the_data_files_dont_overflow() {
 }
 
 #[test]
-fn footer_offers_what_the_selected_post_has() {
+fn footer_stays_still_from_post_to_post() {
     let footer = |a: &mut App| render(a).0.lines().last().unwrap().to_string();
     let mut a = thread_app(false);
-    // The OP has a file: enter views it.
+    // The OP has a file; a reply quoting it has none: the same hints for both.
     a.tab.thread.as_mut().unwrap().selected = 0;
-    let f = footer(&mut a);
-    assert!(f.contains("enter view image") && !f.contains("enter quote"), "{f}");
-    // A reply quoting the OP, without files: enter follows the quote.
+    let op = footer(&mut a);
+    assert!(op.contains("enter open"), "{op}");
     let t = a.tab.thread.as_mut().unwrap();
     let i = t.posts.iter().position(|p| p.files.is_empty() && !p.quotes.is_empty()).unwrap();
     t.select(i);
-    let f = footer(&mut a);
-    assert!(f.contains("enter quote") && !f.contains("view image"), "{f}");
+    let reply = footer(&mut a);
+    let hints = |f: &str| f.rsplit_once("  ").map_or_else(|| f.to_string(), |(h, _)| h.trim_end().to_string());
+    assert_eq!(hints(&reply).split("   ").take(6).collect::<Vec<_>>(), hints(&op).split("   ").take(6).collect::<Vec<_>>());
     // The catalog: enter opens the thread.
     let mut a = catalog_app(false);
     assert!(footer(&mut a).contains("enter open"));

@@ -27,7 +27,7 @@ impl App {
             "tabc" | "tabclose" => self.act(Action::CloseTab),
             "tabn" | "tabnext" => match arg.parse::<usize>() {
                 Ok(n) if (1..=self.tabs.len()).contains(&n) => self.show_tab(n - 1),
-                Ok(n) => self.info(format!("There's no tab {n}")),
+                Ok(n) => self.note(format!("There's no tab {n}")),
                 Err(_) => self.cycle_tab(true),
             },
             "tabp" | "tabprevious" | "tabN" | "tabNext" => self.cycle_tab(false),
@@ -40,13 +40,13 @@ impl App {
             "se" | "set" => self.tab.navigate(View::Settings),
             "noh" | "nohlsearch" => match self.tab.thread.as_mut().filter(|t| !t.search.is_empty()) {
                 Some(t) => t.set_search(String::new()),
-                None => self.info("No search to clear"),
+                None => self.note("No search to clear"),
             },
             "marks" => self.list_marks(),
             "delm" | "delmarks" => self.delete_marks(arg, bang),
             name => match Action::named(name) {
                 Some(action) if action.applies_in(self.scope()) => self.run_action(action),
-                Some(action) => self.info(format!(":{name} ({}) doesn't work here", action.what())),
+                Some(action) => self.note(format!(":{name} ({}) doesn't work here", action.what())),
                 None => return false,
             },
         }
@@ -56,7 +56,7 @@ impl App {
     /// `:tabnew`: a tab after this one, at `place` if one's given, else home.
     fn open_tab(&mut self, place: &str) {
         if self.tabs.len() >= super::MAX_TABS {
-            self.info(format!("{} tabs is the most; :tabclose closes one", super::MAX_TABS));
+            self.note(format!("{} tabs is the most; :tabclose closes one", super::MAX_TABS));
             return;
         }
         let at = self.active + 1;

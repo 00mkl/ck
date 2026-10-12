@@ -50,7 +50,7 @@ impl App {
         if off.dead {
             let x = self.keys.how(crate::keys::Action::Archive);
             let archive = if self.archive_of(t.key()).is_some() { format!(" ({x} looks in the archive)") } else { String::new() };
-            self.info(format!("This is a saved copy from {}; the thread is gone{archive}", crate::ui::ago(off.saved, self.clock)));
+            self.note(format!("This is a saved copy from {}; the thread is gone{archive}", crate::ui::ago(off.saved, self.clock)));
             return;
         }
         let key = t.key().clone();
