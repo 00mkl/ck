@@ -72,7 +72,7 @@ impl App {
         };
         match from.filter(|(_, p)| p.files.iter().any(|f| f.url == file.url)) {
             Some((key, p)) => self.save_file(&key, &p, &file),
-            None => self.info("Can't tell which thread this file is from; o opens it in the browser"),
+            None => self.note("Can't tell which thread this file is from; o opens it in the browser"),
         }
     }
 
@@ -88,7 +88,7 @@ impl App {
                 let posts: Vec<&Post> = t.unhidden_posts().map(|(_, p)| p).collect();
                 let jobs = download::jobs(&posts, &dir);
                 if jobs.is_empty() {
-                    return self.info(self.no_files("Thread has no files to save", false, |f| f.url.is_some()));
+                    return self.note(self.no_files("Thread has no files to save", false, |f| f.url.is_some()));
                 }
                 let have = jobs.iter().filter(|(_, path)| path.exists()).count();
                 let files: Vec<&Attachment> = posts.iter().flat_map(|p| &p.files).filter(|f| f.url.is_some()).collect();
@@ -102,7 +102,7 @@ impl App {
                     let _ = write!(first, ", {have} already there");
                 }
                 if have == jobs.len() {
-                    return self.info(format!("All {} of the thread's files are already in {at}", jobs.len()));
+                    return self.note(format!("All {} of the thread's files are already in {at}", jobs.len()));
                 }
                 ("Save all the thread's files?", vec![first, format!("to {at}")])
             }
@@ -118,7 +118,7 @@ impl App {
     pub(super) fn on_confirm_key(&mut self, key: KeyEvent) {
         let Some(c) = take_popup!(self, Confirm) else { return };
         if !matches!(key.code, KeyCode::Enter | KeyCode::Char('y')) {
-            return self.info("Not saved");
+            return self.note("Not saved");
         }
         match c.what {
             Saving::Files => self.download(true),
@@ -194,7 +194,7 @@ impl App {
     /// Fetch `(url, path)` jobs into `dir` in the background.
     pub(super) fn start_download(&mut self, jobs: Vec<(String, std::path::PathBuf)>, dir: std::path::PathBuf, none: &str) {
         if jobs.is_empty() {
-            self.info(none);
+            self.note(none);
             return;
         }
         if let Err(e) = std::fs::create_dir_all(&dir) {

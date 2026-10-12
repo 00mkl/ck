@@ -476,11 +476,15 @@ fn location(app: &App) -> (Vec<String>, Vec<Span<'static>>) {
     (crumbs, spans)
 }
 
-/// A status message: a ✓ or ! badge, then the text.
+/// A status message: a ✓, ! or · badge (done, failed, or just so), then the text.
 fn status_spans(s: &Status, t: Theme) -> Vec<Span<'static>> {
-    let (mark, bg) = if s.error { ("!", t.error) } else { ("✓", t.success) };
+    let (mark, fg, bg) = match (s.error, s.note) {
+        (true, _) => ("!", t.background, t.error),
+        (false, true) => ("·", t.text, t.surface_high),
+        (false, false) => ("✓", t.background, t.success),
+    };
     vec![
-        Span::styled(format!(" {mark} "), bold(t.background).bg(bg)),
+        Span::styled(format!(" {mark} "), bold(fg).bg(bg)),
         Span::styled(format!(" {}", s.text), Style::new().fg(t.on_bar)),
     ]
 }
@@ -504,7 +508,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             Span::styled(
                 match (app.goto_text(), app.status()) {
                     // Tab completion's candidates, or what went wrong.
-                    (Some(_), Some(Status { text, error })) => format!("   {}{text}", if *error { "! " } else { "" }),
+                    (Some(_), Some(Status { text, error, .. })) => format!("   {}{text}", if *error { "! " } else { "" }),
                     (Some(_), _) => "   enter run or go   tab complete   ↑↓ earlier   esc cancel".into(),
                     _ if app.typing == Some(Typing::ThreadSearch) => "   enter accept   ↑↓ earlier   esc clear".into(),
                     _ => "   enter accept   esc clear".into(),
@@ -539,7 +543,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         right.extend([chip(format!("⇣ saving {} of {} files{failed}", d.done + d.skipped + d.failed, d.total), t.text, t.surface_high), Span::raw(" ")]);
     }
     if !app.refreshing.is_empty() {
-        right.extend([chip(format!("↻ {}", app.refreshing.len()), t.text, t.surface_high), Span::raw(" ")]);
+        right.extend([chip(format!("↻ {} refreshing", app.refreshing.len()), t.text, t.surface_high), Span::raw(" ")]);
     }
     let right_w = cells(markup::spans_columns(&right));
     let left_w = area.width.saturating_sub(right_w);
@@ -648,30 +652,17 @@ fn footer_hints(app: &App) -> Vec<(String, &'static str)> {
                 }
                 hints
             }
-            // What enter does with the selected post comes first, then what else it has;
-            // then what's always there.
+            // The same from post to post, so the footer stays still while you read: what a
+            // post doesn't have, its key passes over (tab goes on to the next post's).
             None => {
                 let Some(t) = app.tab.thread.as_ref() else { return vec![(k(Action::Help), "help")] };
-                let post = t.current();
-                let files = post.is_some_and(|p| !p.files.is_empty());
-                let quotes = post.is_some_and(|p| !p.links.is_empty() || !p.quotes.is_empty());
-                let parts = post.is_some_and(|p| !p.files.is_empty() || !p.links.is_empty() || !p.urls.is_empty());
-                let mut hints = vec![("j/k".into(), "post")];
-                if files {
-                    hints.push(("enter".into(), "view image"));
-                } else if quotes {
-                    hints.push(("enter".into(), "quote"));
-                }
+                let mut hints = vec![("j/k".into(), "post"), ("enter".into(), "open")];
                 // The menu lists everything else, with its keys.
                 hints.push((k(Action::Menu), "more"));
-                if parts {
-                    hints.push((k(Action::NextPart), "images & links"));
-                }
-                if quotes {
-                    hints.push((k(Action::Preview), "preview quote"));
-                }
+                hints.push((k(Action::NextPart), "images & links"));
                 hints.push((k(Action::Show), "show…"));
                 hints.push(("h".into(), "back"));
+                hints.push((k(Action::Preview), "preview quotes"));
                 if app.can_post() {
                     // A draft kept with esc waits there.
                     hints.push((k(Action::Reply), if app.draft_here() { "reply (draft)" } else { "reply" }));
@@ -846,6 +837,25 @@ fn draw_rows(
         }
     }
     Some(Hit::List { area, offset: off, item_height: per })
+}
+
+/// One-line rows in `cols` columns of `width`, row by row, through `state`'s window, the
+/// selected one painted: a list of short rows on a wide screen.
+fn draw_cells(f: &mut Frame, area: Rect, count: usize, state: &mut ListState, (cols, width): (usize, u16), build: &mut dyn FnMut(usize) -> Line<'static>) -> Option<Hit> {
+    if count == 0 || area.is_empty() {
+        return None;
+    }
+    let cols = cols.max(1);
+    let fit = usize::from(area.height);
+    let sel = state.selected().unwrap_or(0).min(count - 1);
+    let off = window(state, count, fit, cols);
+    for k in off..count.min(off + fit * cols) {
+        let (r, c) = ((k - off) / cols, (k - off) % cols);
+        let cell = Rect::new(area.x + c as u16 * width, area.y + r as u16, width, 1).intersection(area);
+        paint_row(f, cell, None, k == sel, false);
+        put(f, cell.x + PAD, cell.y, cell.width.saturating_sub(PAD + 1), build(k));
+    }
+    Some(Hit::Grid { area, offset: off, cols, cell: (width, 1) })
 }
 
 /// Left and right parts of a line, the right one pushed to `width`. A left part too long is

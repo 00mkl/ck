@@ -310,6 +310,10 @@ off per board.)
 
 `ck` starts on the home screen: Watched, History and Saved, your favorite boards, then the
 sites.
+A site's Boards list is in columns when it's longer than the screen is tall and the screen is
+wide enough: `j`/`k` move down and up, `h`/`l` across (`h` in the first column goes
+back). Its filter (`/`) puts the board named as typed first: `/` `g` selects /g/, before the
+boards whose titles have a "g".
 `*` on a board (in the Boards list, or in its catalog) makes it a favorite; favorites are
 listed at the top, and `1`–`9` open the first nine directly. `x` on a favorite takes it
 off. They're kept in the config as `favorites = ["4chan/g", "lainchan/λ"]`. While the home
@@ -455,8 +459,9 @@ or replies only, and its options; a pattern that isn't a valid regex says why an
 saved), `space` turns it off or on
 (`enabled = false`), `a` adds one and `x` removes one (press it twice: it asks first). Each change is written at once;
 the rest of the config, comments included, stays as it was. A change that can't be written
-holds only until ck quits, and the footer says so as an error. No message replaces an
-error before it has been on screen (a second error joins it), and loading something new
+holds only until ck quits, and the footer says so as an error. A message is marked by
+what it is: ✓ something done, ! something that went wrong, · how things are (nothing
+matched, nothing to do). No message replaces an error before it has been on screen (a second error joins it), and loading something new
 clears one that has. In the config:
 
 ```toml
@@ -539,7 +544,9 @@ minimums). A quiet thread is refreshed less often: each refresh that brings no n
 makes the next wait half as long again, up to ten times the interval (no more than 10
 minutes, unless the interval itself is longer); new posts, opening the thread or `R` start
 over. `refresh_backoff = false` (or Settings › Background refresh › Quiet threads) keeps
-the intervals fixed.
+the intervals fixed. While refreshes are under way, the footer's right end says how many
+("↻ 2 refreshing"). They wait while you're pressing keys, so what you ask for comes first,
+and go once you pause.
 
 On 4chan and vichan sites, Watched also shows which page of its board's index each thread
 is on ("p7/10"), and the open thread's top bar says it too. A thread on the last page is

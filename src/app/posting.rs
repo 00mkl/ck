@@ -377,12 +377,12 @@ impl App {
     /// the catalog. A draft left there comes back.
     pub(super) fn open_reply(&mut self, quoting: Quoting) {
         let Some(to) = self.reply_to() else {
-            self.info("Open a thread to reply, or a catalog to start a thread");
+            self.note("Open a thread to reply, or a catalog to start a thread");
             return;
         };
         let Some(poster) = self.poster_for(&to) else {
             let browser = self.keys.key(Action::Browser);
-            self.info(format!("ck can't post on this site (an archive takes no posts); {browser} opens this in the browser"));
+            self.note(format!("ck can't post on this site (an archive takes no posts); {browser} opens this in the browser"));
             return;
         };
         let mut c = self.drafts.remove(&to).unwrap_or_else(|| Compose::new(to, &self.poster.0, &self.poster.1, poster.comment_limit()));

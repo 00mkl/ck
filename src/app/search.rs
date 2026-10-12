@@ -120,7 +120,7 @@ impl App {
     pub fn start_archive_search(&mut self) {
         match self.archives_of(self.tab.site).is_empty() {
             false => self.typing = Some(super::Typing::ArchiveQuery(String::new())),
-            true => self.info("This site has no archive to search (see `archives` in the config)"),
+            true => self.note("This site has no archive to search (see `archives` in the config)"),
         }
     }
 
@@ -194,7 +194,7 @@ impl App {
                 [one] => format!("{one} doesn't keep /{board}/"),
                 _ => format!("None of the archives ({}) keeps /{board}/", names.join(", ")),
             };
-            return self.info(msg);
+            return self.note(msg);
         };
         self.show_search(archive, board, query, back);
         self.search_results(1, Ok(page));
@@ -222,7 +222,7 @@ impl App {
         let (id, stop) = (self.saved_search, Arc::new(AtomicBool::new(false)));
         let of = keys.len();
         if of == 0 {
-            self.info("Nothing is saved yet: watched threads are saved as they refresh");
+            self.note("Nothing is saved yet: watched threads are saved as they refresh");
         }
         let saved = SavedSearch { keys: Vec::new(), copies: Vec::new(), done: 0, of, skipped: 0, finished: of == 0, id, stop: stop.clone() };
         self.tab.search = Some(Search { saved: Some(saved), board: String::new(), query: query.to_string(), hits: Vec::new(), marks: Marks::default(), total: None, pages: 0, back, archive: self.tab.site });
@@ -284,7 +284,7 @@ impl App {
                     n if self.visible_hits().is_empty() => self.all_hidden(n),
                     _ => return,
                 };
-                self.info(msg);
+                self.note(msg);
             }
         }
     }
@@ -318,7 +318,7 @@ impl App {
                     n if self.visible_hits().is_empty() => self.all_hidden(n),
                     _ => return,
                 };
-                self.info(msg);
+                self.note(msg);
             }
             Err(e) => self.error(e),
         }

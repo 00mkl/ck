@@ -40,10 +40,10 @@ impl App {
                 self.info(if hidden { format!("Hid No.{} again", key.no) } else { format!("Unhid No.{}", key.no) });
             }
             Undo::Watched(i, w) => {
-                let no = w.key.no;
+                let name = super::thread_name(w.key.no, &w.subject);
                 self.rehide(|a| a.store.rewatch(i, *w));
                 self.save_now();
-                self.info(format!("Watching thread {no} again"));
+                self.info(format!("Watching {name} again"));
             }
             Undo::Visit(i, v) => {
                 let no = v.key.no;

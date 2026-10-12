@@ -92,7 +92,7 @@ impl App {
     /// this one.
     pub fn new_tab(&mut self) {
         if self.tabs.len() >= MAX_TABS {
-            self.info(format!("{MAX_TABS} tabs is the most; close one with {}", self.keys.key(crate::keys::Action::CloseTab)));
+            self.note(format!("{MAX_TABS} tabs is the most; close one with {}", self.keys.key(crate::keys::Action::CloseTab)));
             return;
         }
         let open = match self.tab.view() {
@@ -102,7 +102,7 @@ impl App {
             View::Thread => match self.outgoing_link() {
                 Some(link) => Some(Open::Link(link)),
                 None => {
-                    self.info("The post quotes nothing in another thread to open in a tab");
+                    self.note("The post quotes nothing in another thread to open in a tab");
                     return;
                 }
             },
@@ -125,7 +125,7 @@ impl App {
     pub fn cycle_tab(&mut self, forward: bool) {
         let n = self.tabs.len();
         if n < 2 {
-            self.info(format!("One tab: {} opens a thread in a new one", self.keys.how(crate::keys::Action::NewTab)));
+            self.note(format!("One tab: {} opens a thread in a new one", self.keys.how(crate::keys::Action::NewTab)));
             return;
         }
         self.show_tab(if forward { (self.active + 1) % n } else { (self.active + n - 1) % n });
@@ -143,7 +143,7 @@ impl App {
         let has = |t: &Tab| t.thread.as_ref().map(ThreadView::key).or(t.pending_thread.as_ref()) == Some(key);
         let Some(i) = self.tabs.iter().enumerate().position(|(i, t)| i != self.active && has(t)) else { return false };
         self.show_tab(i);
-        self.info(format!("Tab {} has it open", i + 1));
+        self.note(format!("Tab {} has it open", i + 1));
         true
     }
 
@@ -163,7 +163,7 @@ impl App {
     pub fn close_tab(&mut self) {
         let n = self.tabs.len();
         if n < 2 {
-            self.info("This is the only tab (q quits)");
+            self.note("This is the only tab (q quits)");
             return;
         }
         let old = self.active;

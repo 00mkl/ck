@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 pub struct Status {
     pub text: String,
     pub error: bool,
+    /// How things are, not something done: no ✓ (nothing found, nothing to do).
+    pub note: bool,
 }
 
 impl Status {
@@ -53,7 +55,7 @@ impl Footer {
 
     /// An info, only if nothing else is showing.
     pub(super) fn offer(&mut self, text: String) {
-        self.shown.get_or_insert(Status { text, error: false });
+        self.shown.get_or_insert(Status { text, error: false, note: false });
     }
 
     /// A new load: what was said before it goes, except an error not yet seen.
@@ -103,11 +105,11 @@ mod tests {
     use super::*;
 
     fn info(t: &str) -> Status {
-        Status { text: t.into(), error: false }
+        Status { text: t.into(), error: false, note: false }
     }
 
     fn error(t: &str) -> Status {
-        Status { text: t.into(), error: true }
+        Status { text: t.into(), error: true, note: false }
     }
 
     fn text(f: &Footer) -> Option<&str> {

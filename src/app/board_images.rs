@@ -108,7 +108,7 @@ impl App {
                 let on = self.images_on(&t.key().site, &t.key().board);
                 if on && !self.thread_images_on() {
                     let (key, open) = (self.keys.how(Action::Media), self.keys.how(Action::OpenFile));
-                    self.info(format!("Images are hidden in this thread ({key} shows them); {open} opens the file"));
+                    self.note(format!("Images are hidden in this thread ({key} shows them); {open} opens the file"));
                     return true;
                 }
                 (on, t.key().board.clone())
@@ -119,7 +119,7 @@ impl App {
             return false;
         }
         let (menu, open) = (self.keys.how(Action::BoardImages), self.keys.how(Action::OpenFile));
-        self.info(format!("Images are off on /{board}/ ({menu} turns them on); {open} opens the file"));
+        self.note(format!("Images are off on /{board}/ ({menu} turns them on); {open} opens the file"));
         true
     }
 }

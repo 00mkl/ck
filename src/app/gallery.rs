@@ -27,7 +27,7 @@ impl App {
         }
         if files.is_empty() {
             let msg = self.no_files(if t.conversation.is_some() { "The conversation has no files" } else { "Thread has no files" }, true, |_| true);
-            return self.info(msg);
+            return self.note(msg);
         }
         let state = ListState::default().with_selected(Some(start.unwrap_or(0)));
         self.tab.gallery = Some(Gallery { files, state });
@@ -73,7 +73,7 @@ impl App {
                 if let Some((_, f)) = g.files.get(cur) {
                     match f.link() {
                         Some((what, url)) => self.copy_text(what, url.to_string()),
-                        None => self.info(super::NEITHER),
+                        None => self.note(super::NEITHER),
                     }
                 }
             }

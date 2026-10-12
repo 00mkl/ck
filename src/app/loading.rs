@@ -216,14 +216,14 @@ impl App {
                     // Last session's thread is gone: its catalog instead.
                     self.tab.navigate(View::Catalog);
                     self.load_catalog();
-                    self.info("The thread you had open last time is gone (archived or deleted)");
+                    self.note("The thread you had open last time is gone (archived or deleted)");
                 } else if let Some(name) = open.or_archive.and_then(|i| self.sites.get(i)).map(|s| s.cfg.name.clone()) {
                     let copy = ThreadKey { site: name, ..key.clone() };
                     // Found in the archive and gone from the site: the archive's copy.
                     let back = self.tab.return_to;
                     self.open_thread_key(&copy, Opening::at(open.select));
                     self.tab.return_to = back;
-                    self.info(format!("The thread is gone from {}: this is {}'s copy", key.site, copy.site));
+                    self.note(format!("The thread is gone from {}: this is {}'s copy", key.site, copy.site));
                 } else {
                     self.thread_gone(key);
                 }
@@ -406,7 +406,7 @@ impl App {
             }
             Err((t, had)) => {
                 if had > 0 {
-                    self.info(format!("The site sent {} of the {had} posts known; shown as it came, and not kept", t.posts().len()));
+                    self.note(format!("The site sent {} of the {had} posts known; shown as it came, and not kept", t.posts().len()));
                 }
                 (t.into_posts(), HashSet::new(), had)
             }

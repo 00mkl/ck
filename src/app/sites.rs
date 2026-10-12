@@ -121,7 +121,7 @@ impl App {
         let Some(board) = missing else {
             take_popup!(self, Adding);
             let name = site.name.clone();
-            self.info(format!("{name} is already one of your sites"));
+            self.note(format!("{name} is already one of your sites"));
             if let Some(o) = open {
                 self.goto_str(&o);
             }
@@ -279,10 +279,10 @@ impl App {
     pub(super) fn refresh_board_list(&mut self, site: usize) {
         let Some(s) = self.sites.get(site) else { return };
         let (Some(list), Some(base)) = (s.cfg.boards.clone(), s.cfg.url.clone()) else {
-            return self.info(format!("{} gets its boards from the site", s.cfg.name));
+            return self.note(format!("{} gets its boards from the site", s.cfg.name));
         };
         if s.cfg.kind != SiteKind::Vichan {
-            return self.info(format!("{} gets its boards from the site", s.cfg.name));
+            return self.note(format!("{} gets its boards from the site", s.cfg.name));
         }
         let base = base.trim_end_matches('/').to_string();
         let host = crate::http::host(&base).to_string();

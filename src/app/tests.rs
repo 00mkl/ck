@@ -6229,3 +6229,68 @@ fn reading_on_in_a_cached_copy_isnt_undone_when_the_live_posts_arrive() {
     draw_at(&mut app, 100, 20);
     assert_eq!(reading(&app), read_on);
 }
+
+// ----- what a session of use turned up (the tenth) -----
+
+fn many_boards(app: &mut App) {
+    let mut boards: Vec<Board> = ["3", "a", "biz", "ck", "g", "gd", "lgbt", "mlp", "po", "sci", "vg", "vt"].iter().map(|b| Board { uri: (*b).into(), title: format!("{b} board"), nsfw: None }).collect();
+    boards[0].title = "3DCG".into();
+    app.sites[0].boards = Some(boards);
+    app.switch_site(0);
+    app.tab.navigate(View::Boards);
+}
+
+#[test]
+fn a_board_filter_puts_the_board_named_so_first() {
+    let mut app = local_app();
+    many_boards(&mut app);
+    for typed in ["g", "/g", "/g/", "G"] {
+        app.tab.board_list.filter = typed.into();
+        let uris: Vec<&str> = app.visible_boards().iter().map(|&i| app.boards()[i].uri.as_str()).collect();
+        // /g/ itself, then /gd/ (its name starts so; not for "/g/"), then the boards that
+        // only mention it.
+        assert_eq!(uris.first().copied(), Some("g"), "{typed}: {uris:?}");
+        assert_eq!(uris.get(1).copied(), (typed != "/g/").then_some("gd"), "{typed}: {uris:?}");
+    }
+}
+
+#[test]
+fn boards_too_many_for_the_screen_go_in_columns_on_a_wide_one() {
+    let mut app = local_app();
+    many_boards(&mut app);
+    // Twelve boards, eight rows: columns, with j going down a row and l across.
+    draw_at(&mut app, 140, 12);
+    let Some(Hit::Grid { cols, .. }) = app.drawn.body else { panic!("not in columns: {:?}", app.drawn.body) };
+    assert!(cols > 1);
+    app.on_key(KeyEvent::from(KeyCode::Char('j')));
+    assert_eq!(app.selected_row(View::Boards), Some(cols));
+    app.on_key(KeyEvent::from(KeyCode::Char('l')));
+    assert_eq!(app.selected_row(View::Boards), Some(cols + 1));
+    // h in the first column goes back.
+    app.on_key(KeyEvent::from(KeyCode::Char('h')));
+    app.on_key(KeyEvent::from(KeyCode::Char('h')));
+    assert_eq!(app.tab.view(), View::Sites);
+    // On a narrow screen, or with room for every row, a list as before.
+    app.tab.navigate(View::Boards);
+    draw_at(&mut app, 40, 12);
+    assert!(matches!(app.drawn.body, Some(Hit::List { .. })));
+    draw_at(&mut app, 140, 30);
+    assert!(matches!(app.drawn.body, Some(Hit::List { .. })));
+}
+
+#[test]
+fn watching_names_the_thread_and_finding_nothing_is_no_success() {
+    let mut app = thread_app();
+    let mut posts = nos(&[1, 2, 3]);
+    posts[0].subject = Some("The Sticky: /λ/ 2.0".into());
+    app.set_thread(posts);
+    app.act(Action::Watch);
+    let s = app.status().unwrap();
+    assert_eq!((s.text.as_str(), s.note), ("Watching “The Sticky: /λ/ 2.0”", false));
+    // A search that finds nothing says so as a note, not as something done.
+    app.on_key(KeyEvent::from(KeyCode::Char('/')));
+    type_text(&mut app, "qwen");
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    let s = app.status().unwrap();
+    assert_eq!((s.text.as_str(), s.note, s.error), ("No posts match \"qwen\"", true, false));
+}

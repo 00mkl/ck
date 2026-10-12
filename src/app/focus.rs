@@ -162,7 +162,7 @@ impl App {
         if let Some(t) = &mut self.tab.thread
             && !t.step_part(forward)
         {
-            self.info(if forward { "No more images or links below" } else { "No more images or links above" });
+            self.note(if forward { "No more images or links below" } else { "No more images or links above" });
         }
     }
 
@@ -619,7 +619,7 @@ impl App {
             && !self.select_key(self.tab.view(), on)
             && i < *rows
         {
-            return self.info("That's gone since the menu opened");
+            return self.note("That's gone since the menu opened");
         }
         match m.items.get(i) {
             Some(MenuItem::Enter(_)) => self.on_key(KeyEvent::from(KeyCode::Enter)),
@@ -684,7 +684,7 @@ impl App {
             _ => {}
         }
         if at.is_empty() {
-            self.info("Nothing to pick here");
+            self.note("Nothing to pick here");
             return;
         }
         let targets = labels(at.len()).into_iter().zip(at).map(|(label, (x, y, to))| HintTarget { label, x, y, to }).collect();
@@ -724,7 +724,7 @@ impl App {
                 let Some(t) = &mut self.tab.thread else { return };
                 // Labels put up before the thread changed (a refresh) may be on what's gone.
                 let Some(e) = t.entry_of(&path).filter(|&e| part.as_ref().is_none_or(|p| t.parts_of(e).contains(p))) else {
-                    self.info(CHANGED);
+                    self.note(CHANGED);
                     return;
                 };
                 t.set_cursor(e);
@@ -736,7 +736,7 @@ impl App {
                 }
             }
             HintTo::Row(key) if self.select_key(self.tab.view(), &key) => self.on_key(KeyEvent::from(KeyCode::Enter)),
-            HintTo::Row(_) => self.info(CHANGED),
+            HintTo::Row(_) => self.note(CHANGED),
         }
     }
 }
