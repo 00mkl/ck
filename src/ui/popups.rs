@@ -102,7 +102,8 @@ pub(super) fn draw_confirm(f: &mut Frame, app: &App) {
     let w = (c.lines.iter().map(|l| markup::columns(l)).max().unwrap_or(0).max(markup::columns(c.title) + 24) + 6).min(100) as u16;
     let width = (w.min(f.area().width.saturating_sub(4)).saturating_sub(4) as usize).max(10);
     let lines: Vec<_> = c.lines.iter().flat_map(|l| wrap_path(l, width)).map(|l| Line::styled(l, Style::new().fg(t.text))).collect();
-    text_panel(f, (w, c.title, "enter save · esc cancel"), &lines);
+    let keys = if c.files { "enter save · f with files · esc cancel" } else { "enter save · esc cancel" };
+    text_panel(f, (w, c.title, keys), &lines);
 }
 
 /// `text` in lines of at most `width` columns, broken after a `/` where it can be.

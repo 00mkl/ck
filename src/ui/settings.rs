@@ -7,6 +7,23 @@ pub(super) fn draw_settings(f: &mut Frame, app: &mut App, area: Rect) {
     let selected = app.list_state(View::Settings).selected().unwrap_or(0);
     // With a filter (`/`), the settings it leaves, without their sections.
     let shown = app.visible_settings();
+    let items: Vec<_> = settings().collect();
+    // The selected setting in full at the bottom, under a blank line: its value and what it
+    // does, which a row may have to cut short.
+    let full = shown.get(selected).and_then(|&k| items.get(k)).map(|item| {
+        let text = Line::from(vec![
+            Span::styled(format!("{}: ", item.label), Style::new().fg(t.text)),
+            Span::styled((item.value)(app), bold(t.text)),
+            Span::styled(format!("  ·  {}", item.hint), dim()),
+        ]);
+        markup::wrap(&text, area.width.saturating_sub(PAD + 1) as usize)
+    });
+    let full = full.filter(|lines| area.height as usize > lines.len() + 6).unwrap_or_default();
+    let below = if full.is_empty() { 0 } else { full.len() as u16 + 1 };
+    for (i, line) in full.into_iter().enumerate() {
+        put(f, area.x + PAD, area.bottom() - below + 1 + i as u16, area.width.saturating_sub(PAD + 1), line);
+    }
+    let area = Rect { height: area.height - below, ..area };
     let headers = app.filter(View::Settings).is_empty();
     let rows = if headers { setting_rows() } else { (0..shown.len()).map(Ok).collect() };
     // Scroll so the selected setting (and the note under the list, at the end) shows.
@@ -19,10 +36,12 @@ pub(super) fn draw_settings(f: &mut Frame, app: &mut App, area: Rect) {
         empty(f, area, "No settings match");
         return;
     }
-    let items: Vec<_> = settings().collect();
-    // The values as wide as the widest, when the screen leaves the hints some room; else 34.
-    let widest = items.iter().map(|item| markup::columns(&(item.value)(app)) + 2).max().unwrap_or(0);
-    let value_w = widest.min((area.width as usize).saturating_sub(PAD as usize + 1 + 18 + 40)).max(34);
+    // The values as wide as nearly all of them (a long one, like a folder, is cut: it's in
+    // full at the bottom when it's selected), when the screen leaves the hints some room.
+    let mut widths: Vec<usize> = items.iter().map(|item| markup::columns(&(item.value)(app)) + 2).collect();
+    widths.sort_unstable();
+    let usual = widths.get(widths.len() * 9 / 10).copied().unwrap_or(0);
+    let value_w = usual.min((area.width as usize).saturating_sub(PAD as usize + 1 + 18 + 40)).max(24);
     for (row, r) in rows.into_iter().enumerate().skip(offset) {
         let y = area.y + (row - offset) as u16;
         if y >= area.bottom() {

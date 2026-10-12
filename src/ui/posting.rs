@@ -169,9 +169,12 @@ fn file_note(path: &str) -> (String, Style) {
     }
     let full = crate::config::expand_home(path);
     match std::fs::metadata(&full) {
+        // The type it's sent as (what it starts with says; else its name).
         Ok(m) if m.is_file() => {
-            let kind = full.extension().map(|e| e.to_string_lossy().to_uppercase()).unwrap_or_default();
-            (format!("{}{}", human_size(m.len()), if kind.is_empty() { String::new() } else { format!(" · {kind}") }), dim())
+            let mut head = [0; 16];
+            let n = std::fs::File::open(&full).and_then(|mut f| std::io::Read::read(&mut f, &mut head)).unwrap_or(0);
+            let kind = crate::web::mime(head.get(..n).unwrap_or_default(), path);
+            (format!("{} · {kind}", human_size(m.len())), dim())
         }
         Ok(_) => ("a folder: tab lists it".into(), Style::new().fg(theme().warning)),
         Err(_) => ("no such file".into(), Style::new().fg(theme().error)),

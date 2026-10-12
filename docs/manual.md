@@ -288,7 +288,7 @@ remembered across starts (IDs are the thread's alone). Filters can catch IDs and
 
 In the gallery (`V`), `h`/`j`/`k`/`l` move (the wheel a row at a time), `enter` views
 (`h`/`l` there go through every file of the thread), `d` saves the file, `esc` returns to
-its post.
+its post. The footer says which file is selected, of how many.
 
 Copying uses the terminal's clipboard escape (OSC 52), which also works over SSH; in tmux it
 needs `set -g set-clipboard on`. On a local machine ck also uses `pbcopy`, `wl-copy`,
@@ -711,8 +711,9 @@ unless it's the opening post; the menu's "reply quoting its text" quotes its tex
 The box has the post's fields: name, options (`sage`, …), the subject for a new thread,
 the comment, a file (a path; `~/` works) and whether to spoiler it. In the file's field
 `tab` completes the path as a shell does (several names that fit are listed beside it; the
-next `tab` moves on), and beside the path is what's there: its size and kind, or "no such
-file", before you send. Elsewhere `tab` and shift-tab go
+next `tab` moves on), and beside the path is what's there: its size and the type it's sent
+as (`image/jpeg`, `video/mp4`, … by what the file starts with, else its name), or "no such
+file", before you send. Sites like jschan refuse a file whose type they can't tell. Elsewhere `tab` and shift-tab go
 between them (so do the arrows, outside the comment); in a field the keys are a shell's:
 ctrl-a / ctrl-e line start and end, ctrl-w a word back, ctrl-u / ctrl-k to the line's start
 or end, alt or ctrl with the arrows a word at a time. Pasted text keeps its lines in the
@@ -813,7 +814,9 @@ results (the title says how many) until `c Z` shows them, marked "hidden"; this 
 Catalog and thread views show thumbnails, and `enter` on a post opens a full-screen viewer. ck asks the
 terminal which image protocol it supports (kitty, sixel, iTerm2) and falls back to unicode
 half-blocks, which work everywhere. The detected protocol is shown in the `?` help's
-title bar. Thumbnails are skipped in terminals narrower than 60 columns.
+title bar. Thumbnails are skipped in terminals narrower than 60 columns. A thumbnail the
+site has lost (old posts on some sites, like kissu's) is made from the file itself when
+that's a picture of at most 4 MB; otherwise the tile shows ✗.
 
 Animated GIFs play in the viewer, at up to 20 frames a second (frames are prepared in the
 background, and scaled down if a long GIF would take too much memory). Videos open
@@ -896,8 +899,9 @@ When the site or archive has only a file's thumbnail, saving skips it.
 folder as `thread.html`, a page with the current theme's colors that reads offline, and
 `thread.json`, the posts as data (`"format": 1`). Files already saved there are shown from
 the folder; the others link to the site (to the thumbnail when that's all the site has,
-and nowhere when it has neither). So saving all the thread's files and then the page
-makes a complete offline copy. Saving again replaces both. Each file in `thread.json` has
+and nowhere when it has neither), and are gone once the thread is. When some files aren't
+saved, the question says so, and `f` there saves them too: the page is written at once,
+and again when they're saved, showing them, a complete offline copy. Saving again replaces both. Each file in `thread.json` has
 a `kind` (`image`, `video` or `other`); a file the site or archive has only the thumbnail
 of has `"url": null`. The thread is also saved for ck itself, to open from the Saved view;
 there such a file's `url` is `""`, so older versions of ck still read the copy.
@@ -913,7 +917,9 @@ name has it come first). They open over where you are: what's loading there goes
 and lands under them (a post looked up opens its thread there), and `esc` closes them on
 wherever that left you. The thread under them isn't refreshed as the open one meanwhile:
 if it's watched, its new posts count as unread, as any watched thread's do. `:` from
-Settings closes them and goes from the place under them. Their options are saved to your
+Settings closes them and goes from the place under them. The selected setting is shown in
+full at the bottom, its value and what it's for, which a narrow screen cuts short in the
+list. Their options are saved to your
 config file, keeping your comments (a setting the file has commented out, as the default
 does, is written in its place, under its explanation) (a symlinked config is written through the link, and
 keeps its permissions), and the file is created from the default if you don't have one

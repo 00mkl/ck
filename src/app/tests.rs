@@ -141,7 +141,7 @@ fn the_wheel_over_a_save_question_leaves_the_thread_alone() {
     let mut app = thread_app();
     app.set_thread(nos(&(1..=60).collect::<Vec<_>>()));
     draw_at(&mut app, 80, 20);
-    app.popup = Some(Popup::Confirm(saving::Confirm { what: saving::Saving::Page, title: "Save the thread as a page?", lines: vec![] }));
+    app.popup = Some(Popup::Confirm(saving::Confirm { what: saving::Saving::Page, title: "Save the thread as a page?", lines: vec![], files: false }));
     let before = app.tab.thread.as_ref().unwrap().scroll;
     app.on_mouse(mouse(MouseEventKind::ScrollDown, 5, 5), Instant::now());
     assert_eq!(app.tab.thread.as_ref().unwrap().scroll, before, "the thread behind scrolled");
@@ -153,7 +153,7 @@ fn the_wheel_over_a_save_question_leaves_the_thread_alone() {
 #[test]
 fn the_wheel_never_answers_a_save_question() {
     let mut app = test_app();
-    app.popup = Some(Popup::Confirm(saving::Confirm { what: saving::Saving::Page, title: "Save the thread as a page?", lines: vec![] }));
+    app.popup = Some(Popup::Confirm(saving::Confirm { what: saving::Saving::Page, title: "Save the thread as a page?", lines: vec![], files: false }));
     app.on_mouse(mouse(MouseEventKind::ScrollDown, 5, 5), Instant::now());
     assert!(app.confirm().is_some(), "the wheel answered: {:?}", app.status());
     assert_eq!(app.selected_row(View::Sites), Some(0));
@@ -6293,4 +6293,47 @@ fn watching_names_the_thread_and_finding_nothing_is_no_success() {
     app.on_key(KeyEvent::from(KeyCode::Enter));
     let s = app.status().unwrap();
     assert_eq!((s.text.as_str(), s.note, s.error), ("No posts match \"qwen\"", true, false));
+}
+
+// ----- what a session of use turned up (the eleventh) -----
+
+#[test]
+fn a_thumbnail_the_site_lost_is_made_from_the_file() {
+    let mut app = thread_app();
+    let file = |size| Attachment { thumb: Some("https://x.example/thumb/1.jpg".into()), size: Some(size), ..Attachment::at("https://x.example/src/1.jpg") };
+    let mut posts = nos(&[1, 2]);
+    posts[0].files = vec![file(400_000)];
+    app.set_thread(posts.clone());
+    app.images = crate::images::Images::offline();
+    app.images.insert_failed("https://x.example/thumb/1.jpg");
+    draw_at(&mut app, 100, 30);
+    assert_eq!(app.images.queued_urls(), vec!["https://x.example/src/1.jpg".to_string()]);
+    // A big file isn't fetched for a thumbnail: the tile says it failed.
+    posts[0].files = vec![file(40_000_000)];
+    app.set_thread(posts);
+    app.images = crate::images::Images::offline();
+    app.images.insert_failed("https://x.example/thumb/1.jpg");
+    draw_at(&mut app, 100, 30);
+    assert!(app.images.queued_urls().is_empty());
+}
+
+#[test]
+fn a_page_can_be_saved_with_its_files_to_read_offline() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut app = saving_app(dir.path(), 1000);
+    app.download_dir = Some(dir.path().join("dl").display().to_string());
+    app.tab.board = Some(Board { uri: "x".into(), title: String::new(), nsfw: None });
+    app.tab.navigate(View::Thread);
+    let mut posts = nos(&[1, 2]);
+    posts[0].files = vec![Attachment { thumb: Some("http://127.0.0.1:3/s.jpg".into()), ..Attachment::at("http://127.0.0.1:3/1.jpg") }];
+    app.set_thread(posts);
+    // Its picture isn't saved: the question says so, and f saves it too.
+    app.act(Action::Export);
+    let c = app.confirm().unwrap();
+    assert!(c.files && c.lines.iter().any(|l| l.contains("f saves its 1 file too")), "{:?}", c.lines);
+    app.on_key(KeyEvent::from(KeyCode::Char('f')));
+    let page = app.tab.thread.as_ref().map(|t| crate::download::dir(app.download_dir.as_deref(), t.key())).unwrap();
+    assert!(page.join("thread.html").exists());
+    // Written again once the file is: the page waits for it.
+    assert!(app.downloads.running > 0 && app.downloads.page.is_some());
 }
