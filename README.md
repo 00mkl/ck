@@ -6,7 +6,7 @@
 [![CI](https://github.com/gold-silver-copper/ck/actions/workflows/ci.yml/badge.svg)](https://github.com/gold-silver-copper/ck/actions/workflows/ci.yml)
 [![Built With Ratatui](https://ratatui.rs/built-with-ratatui/badge.svg)](https://ratatui.rs/)
 
-[![A two-minute tour of ck](ck-demo.avif)](ck-demo.webm)
+[![A tour of ck: posting through a captcha, posting pictures, then browsing](ck-demo.avif)](ck-demo.webm)
 
 ## Install
 

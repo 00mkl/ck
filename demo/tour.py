@@ -13,6 +13,7 @@ captions (captions.py).
 import fcntl
 import os
 import pty
+import re
 import select
 import signal
 import subprocess
@@ -32,6 +33,15 @@ PACE = float(os.environ.get("CK_DEMO_PACE", "0.7"))
 # Touched by record.sh once it has stopped recording: only then does the tour quit ck, so
 # its window never closes on camera.
 DONE = os.environ.get("CK_DEMO_DONE")
+# Posting, first: the thread replied in (`site/board/no`), and the folder of the pictures
+# posted (`~/` form, typed into the reply box). Without them the tour starts at browsing.
+POST_IN = os.environ.get("CK_DEMO_POST_IN")
+# Before that, a reply in this thread (`site/board/no`) through its site's captcha.
+CAPTCHA_IN = os.environ.get("CK_DEMO_CAPTCHA_IN")
+PICS = os.environ.get("CK_DEMO_PICS")
+# When a captcha shows, the tour touches `<CK_DEMO_CAPTCHA>.shown` and waits for its answer
+# in `<CK_DEMO_CAPTCHA>.answer`: a person reads it off the screen (the wait is cut).
+CAPTCHA = os.environ.get("CK_DEMO_CAPTCHA")
 
 # ck's spinner, shown while something loads.
 SPINNER = "⣾⣽⣻⢿⡿⣟⣯⣷"
@@ -50,6 +60,8 @@ KEYS = {
     "ctrl-w": "\x17",
     "ctrl-d": "\x04",
     "ctrl-u": "\x15",
+    "ctrl-s": "\x13",
+    "home": "\x1b[H",
 }
 
 
@@ -141,15 +153,120 @@ class Tour:
         return found
 
 
+def answer_captcha(t):
+    """The captcha on screen, answered: read by a person off the screen (see CAPTCHA), then
+    typed. Until it's answered the tour waits, and the wait is cut from the video."""
+    t.log("hold")
+    open(CAPTCHA + ".shown", "w").close()
+    while not os.path.exists(CAPTCHA + ".answer"):
+        time.sleep(0.2)
+    answer = open(CAPTCHA + ".answer").read().strip()
+    os.remove(CAPTCHA + ".answer")
+    os.remove(CAPTCHA + ".shown")
+    t.log("go")
+    # A grid's picks are digits, each toggled with a moment to see it.
+    t.type(answer, gap=0.5 if answer.isdigit() else 0.18)
+    t.pause(0.8)
+    t.key("enter")
+
+
+def posts_shown(t):
+    """How many posts the thread's top bar says it has."""
+    m = re.search(r"(\d+) posts?\b", t.screen().split("\n", 1)[0])
+    return int(m.group(1)) if m else 0
+
+
+def reload_until(t, count):
+    """R until the thread has `count` posts: a site can take a moment to list a new one."""
+    for _ in range(6):
+        t.key("R")
+        if t.wait_for(f" {count} post", timeout=12, top=True):
+            return
+
+
+def post(t, comment, pic=None):
+    """Reply in the open thread, quoting nothing (the opening post selected): `comment`, and
+    the picture `pic` from PICS if any (its name completed with tab), through the site's
+    captcha if it asks."""
+    t.key("home")
+    t.pause(0.8)
+    t.key("r")
+    t.pause(1.5)
+    t.type(comment, gap=0.05)
+    t.pause(0.8)
+    if pic:
+        t.key("tab")
+        # Up to the picture's number: tab completes the rest.
+        t.type(f"{PICS}/{pic.split('.')[0]}", gap=0.05)
+        t.key("tab")
+        t.pause(2)
+    t.key("ctrl-s")
+    # (What ck says once it's in: the comment can't say it.)
+    t.wait_for("Type the text", "Pick every picture", "Posted No.", timeout=90)
+    screen = t.screen()
+    if "Pick every picture" in screen:
+        t.scene("The site's captcha, in the terminal: pick every picture asked for (1-9), enter sends")
+        t.pause(3.5)
+        answer_captcha(t)
+    elif "Type the text" in screen:
+        t.scene("The site's captcha, in the terminal: type what the picture says, enter sends")
+        t.pause(3)
+        answer_captcha(t)
+    t.wait_for("Posted No.", timeout=90)
+    t.pause(2.5)
+
+
 def tour(t):
-    first, second = pick_threads()
+    first, _ = pick_threads()
 
     # The video starts with the first scene: by then the pointer Hyprland draws on a new
     # monitor has timed out.
     t.wait_for("Watched", timeout=10)
     time.sleep(4)
-    t.scene("ck: imageboards in your terminal. Home: watched, history, saved, favorites, sites")
-    t.pause(3)
+    if CAPTCHA_IN:
+        t.scene("ck: imageboards in your terminal. It posts too, captchas and all")
+        t.key(":")
+        t.type(CAPTCHA_IN)
+        t.key("enter")
+        t.wait_for(" post", timeout=30, top=True)
+        t.pause(1.5)
+        t.scene("r replies, ctrl-s sends")
+        n = posts_shown(t)
+        post(t, "Posted from ck, an imageboard browser for the terminal.")
+        t.scene("Posted, and marked as yours")
+        reload_until(t, n + 1)
+        t.key("G")
+        t.pause(3)
+    if POST_IN:
+        t.scene("Pictures too: the file field takes a path, and tab completes it")
+        t.key(":")
+        t.type(POST_IN)
+        t.key("enter")
+        t.wait_for(" post", timeout=30, top=True)
+        t.pause(1.5)
+        n = posts_shown(t)
+        post(t, "Sent from ck, in a terminal.", "ck-post-1.png")
+        t.scene("There it is, picture and all")
+        reload_until(t, n + 1)
+        t.key("G")
+        t.pause(3)
+        t.scene("Another, with another picture")
+        post(t, "And another one, right after.", "ck-post-2.png")
+        reload_until(t, n + 2)
+        t.key("G")
+        t.pause(1.5)
+        t.scene("enter views it full size")
+        t.key("enter", gap=0.1)
+        t.loaded()
+        t.pause(2.5)
+        t.key("esc")
+        t.pause(1)
+
+    t.scene("Home: watched, history, saved, favorites, sites")
+    t.key(":")
+    t.type("home")
+    t.key("enter")
+    t.pause(2)
     t.key("j", "j", "j", gap=0.4)
     t.pause(1)
 
@@ -165,22 +282,24 @@ def tour(t):
     t.key("j", "j", "j", "j", gap=0.6)
     t.pause(1.5)
 
-    t.scene("c cycles the layout: cards, compact, grid")
+    t.scene("c: what the catalog shows. c l cycles the layout: cards, compact, grid")
     t.key("c")
+    t.pause(2)
+    t.key("l")
     t.pause(2.5)
-    t.key("c")
+    t.key("c", "l", gap=0.6)
     t.pause(3)
     t.key("l", "l", "j", gap=0.5)
     t.pause(1)
-    t.key("c")
+    t.key("c", "l", gap=0.6)
     t.pause(1)
 
-    t.scene("s sorts: bump order, most replies, newest, oldest")
-    t.key("s")
+    t.scene("c s sorts: bump order, most replies, newest, oldest")
+    t.key("c", "s", gap=0.6)
     t.pause(2)
-    t.key("s")
+    t.key("c", "s", gap=0.6)
     t.pause(1.5)
-    t.key("s", "s", gap=0.6)
+    t.key("c", "s", "c", "s", gap=0.6)
     t.pause(1)
 
     t.scene("/ filters as you type")
@@ -200,7 +319,7 @@ def tour(t):
     t.pause(1)
 
     t.scene("tab steps through a post's images, links and quotes; a focused quote shows its post")
-    t.key("b")
+    t.key(".", "b", gap=0.6)
     t.pause(1.5)
     t.key("tab", gap=1.5)
     t.key("tab", gap=1.5)
@@ -208,22 +327,22 @@ def tour(t):
     t.key("esc")
     t.pause(0.5)
 
-    t.scene("e shows a post's replies under it, indented")
-    t.key("g")
+    t.scene(". e shows a post's replies under it, indented")
+    t.key("home")
     t.pause(0.8)
-    t.key("e")
+    t.key(".", "e", gap=0.6)
     t.pause(1.5)
     # Down through the OP (two screens) into its replies.
     t.key("j", "j", "j", "j", "j", gap=0.9)
     t.pause(2)
-    t.key("g")
-    t.key("e")
+    t.key("home")
+    t.key(".", "e", gap=0.6)
     t.pause(0.8)
 
-    t.scene("c: one post's conversation alone")
-    t.key("b")
+    t.scene("c C: one post's conversation alone")
+    t.key(".", "b", gap=0.6)
     t.pause(0.8)
-    t.key("c")
+    t.key("c", "C", gap=0.6)
     t.pause(3)
     t.key("j", "j", gap=0.7)
     t.key("esc")
@@ -238,19 +357,19 @@ def tour(t):
     t.key("esc")
     t.pause(0.8)
 
-    t.scene("M: only the posts with files, then images hidden, then everything")
-    t.key("g")
-    t.key("M")
+    t.scene("c M: only the posts with files, then images hidden, then everything")
+    t.key("home")
+    t.key("c", "M", gap=0.6)
     t.pause(2.5)
     t.key("j", "j", gap=0.6)
-    t.key("M")
+    t.key("c", "M", gap=0.6)
     t.pause(2)
-    t.key("M")
+    t.key("c", "M", gap=0.6)
     t.pause(1)
 
-    t.scene("v: the image viewer, on through every file in the thread")
-    t.key("g")
-    t.key("v", gap=0.1)
+    t.scene("enter on a post's picture: the image viewer, on through every file in the thread")
+    t.key("home")
+    t.key("enter", gap=0.1)
     t.loaded()
     t.pause(1.5)
     for _ in range(4):
@@ -292,17 +411,14 @@ def tour(t):
     t.key("w")
     t.pause(2.5)
 
-    t.scene("Tabs: T opens a thread in a new one, ] and [ move between them")
+    t.scene("Tabs: . T opens a thread in a new one, ] and [ move between them")
     t.key(":")
     t.type("4chan/g")
     t.key("enter")
     t.wait_for("threads", top=True)
     t.pause(1)
-    t.key("/")
-    t.type(str(second)[-6:])
-    t.key("enter")
-    t.pause(0.8)
-    t.key("T")
+    t.key("j", "j", gap=0.5)
+    t.key(".", "T", gap=0.6)
     t.wait_for(" posts", timeout=20, top=True)
     t.pause(2.5)
     t.key("[")
@@ -311,22 +427,18 @@ def tour(t):
     t.pause(2)
     t.key("ctrl-w")
     t.pause(1)
-    # The whole catalog again.
-    t.key("/")
-    t.key("esc")
-    t.pause(1)
 
-    t.scene("H hides a thread (Z would show it again); X makes a filter from one")
+    t.scene(". H hides a thread (c Z would show it again); . X makes a filter from one")
     t.key("j", "j", gap=0.5)
-    t.key("H")
+    t.key(".", "H", gap=0.6)
     t.pause(2.5)
-    t.key("X")
+    t.key(".", "X", gap=0.6)
     t.pause(3.5)
     t.key("esc")
     t.pause(0.8)
 
-    t.scene("A searches the board's archive (desuarchive)")
-    t.key("A")
+    t.scene(". A searches the board's archive (desuarchive)")
+    t.key(".", "A", gap=0.6)
     t.type("rust")
     t.key("enter")
     # Results, not just the header's "0 results" while it searches.
