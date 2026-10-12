@@ -415,6 +415,13 @@ impl Store {
         new
     }
 
+    /// How many of `threads` weren't in the board's catalog when it was last loaded,
+    /// without remembering them (that's for when it's opened); None before a first load.
+    pub fn unseen(&self, site: &str, board: &str, threads: &[u64]) -> Option<usize> {
+        let map = self.seen.get(&board_key(site, board)).filter(|m| m.values().any(|t| !t.opened_only))?;
+        Some(threads.iter().filter(|no| !map.contains_key(no)).count())
+    }
+
     /// A board's catalog was opened: it goes to the front of the recent boards.
     pub fn board_opened(&mut self, site: &str, board: &str) {
         let key = board_key(site, board);

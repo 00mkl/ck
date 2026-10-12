@@ -3,6 +3,9 @@
 
 use super::*;
 
+/// How often the home screen asks a favorite board what's new.
+const FAVORITES_EVERY: Duration = Duration::from_secs(5 * 60);
+
 /// A site's answer for a thread whole enough to count, visit and keep: only `App::accept`
 /// makes one (and `App::shown_whole`, of what's shown).
 pub struct Whole(Thread);
@@ -585,6 +588,35 @@ impl App {
             self.refresh_in_background(key);
         }
         self.check_generals(self.clock.instant());
+        self.check_favorites(now);
+    }
+
+    /// On the home screen: a favorite board's catalog at background priority, now and then
+    /// (one at a time), to say how many of its threads are new.
+    fn check_favorites(&mut self, now: Instant) {
+        if self.tab.view() != View::Sites || self.favorites_asking {
+            return;
+        }
+        let due = self.favorites.iter().find(|f| self.favorites_checked.get(&f.key()).is_none_or(|t| now.saturating_duration_since(*t) >= FAVORITES_EVERY)).cloned();
+        let Some(fav) = due else { return };
+        self.favorites_checked.insert(fav.key(), now);
+        let Some(backend) = self.site_named(&fav.site).map(|s| s.backend.clone()) else { return };
+        self.favorites_asking = true;
+        let later = self.later();
+        std::thread::spawn(move || {
+            let res = crate::guard::result(|| http::background_at(now, || backend.catalog(&fav.board, &|_| {})));
+            later.run(move |app| {
+                app.favorites_asking = false;
+                // A failure leaves what was said before: it's only a hint.
+                if let Ok(posts) = res {
+                    let nos: Vec<u64> = posts.iter().map(|p| p.no).collect();
+                    match app.store.unseen(&fav.site, &fav.board, &nos) {
+                        Some(n) => app.favorites_new.insert(fav.key(), n),
+                        None => app.favorites_new.remove(&fav.key()),
+                    };
+                }
+            });
+        });
     }
 
     pub(super) fn refresh_in_background(&mut self, key: ThreadKey) {
