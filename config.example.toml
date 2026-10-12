@@ -118,6 +118,12 @@ text_width = 140
 # many new posts are below. Also in Settings.
 follow_new_posts = true
 
+# Opening a thread you read before goes back to where you left it: the same post at the
+# top of the screen, and the same one selected, also after ck restarts. A link to a post,
+# a mark or the last session's tabs go where they say instead. The last 1000 threads are
+# remembered (positions.json in the data directory). Also in Settings.
+remember_thread_position = true
+
 # Favorite boards, shown at the top of the home screen (1-9 open them). * on a board adds
 # or removes one, and saves the list here.
 favorites = []

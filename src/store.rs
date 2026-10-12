@@ -221,6 +221,21 @@ pub struct Place {
     pub conversation: Option<u64>,
 }
 
+/// Where a thread was read to (`remember_thread_position`), to come back to: the post at the
+/// top of the screen and how many of its lines were scrolled past, and the selected post.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Position {
+    #[serde(flatten)]
+    pub key: ThreadKey,
+    pub top: u64,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub offset: usize,
+    pub selected: u64,
+}
+
+/// How many threads' positions are kept: past this, the ones read longest ago are dropped.
+pub const POSITIONS_MAX: usize = 1000;
+
 /// UI settings that couldn't be saved in config.toml.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Settings {
@@ -258,6 +273,8 @@ pub struct Store {
     /// Where you were, as last saved (`save_session`).
     pub session: Session,
     pub recall: Recall,
+    /// Where threads were read to, the last read first (`POSITIONS_MAX` of them).
+    pub positions: Vec<Position>,
     /// Past this many bytes, the oldest unwatched copies are removed.
     pub saved_max: u64,
     /// Writes saved copies in the background (with a data directory).
@@ -333,6 +350,7 @@ impl Store {
             store.board_prefs = load_file(dir, "board_prefs.json", &mut store.owned, &mut warnings);
             store.session = load_file(dir, "session.json", &mut store.owned, &mut warnings);
             store.recall = load_file(dir, "recall.json", &mut store.owned, &mut warnings);
+            store.positions = load_file(dir, "positions.json", &mut store.owned, &mut warnings);
             let index: Option<SavedIndex> = load_file(dir, "saved.json", &mut store.owned, &mut warnings);
             store.saved = match index {
                 Some(index) => index.threads,
@@ -357,7 +375,7 @@ impl Store {
     }
 
     /// Every file with its content.
-    fn files(&self) -> Result<[(&'static str, Vec<u8>); 10]> {
+    fn files(&self) -> Result<[(&'static str, Vec<u8>); 11]> {
         Ok([
             ("watched.json", serde_json::to_vec_pretty(&self.watched)?),
             ("history.json", serde_json::to_vec_pretty(&self.history)?),
@@ -369,6 +387,7 @@ impl Store {
             ("saved.json", serde_json::to_vec_pretty(&SavedIndex { version: saved::VERSION, threads: self.saved.clone() })?),
             ("session.json", serde_json::to_vec_pretty(&self.session)?),
             ("recall.json", serde_json::to_vec_pretty(&self.recall)?),
+            ("positions.json", serde_json::to_vec(&self.positions)?),
         ])
     }
 
@@ -569,6 +588,22 @@ impl Store {
     }
 
     /// Record a visit: move it to the front of the history and mark everything seen.
+    /// Where thread `key` was read to, if it's remembered.
+    pub fn position(&self, key: &ThreadKey) -> Option<&Position> {
+        self.positions.iter().find(|p| &p.key == key)
+    }
+
+    /// Remember where a thread was read to, as the last read. Whether that changed anything.
+    pub fn set_position(&mut self, p: Position) -> bool {
+        if self.positions.first() == Some(&p) {
+            return false;
+        }
+        self.positions.retain(|q| q.key != p.key);
+        self.positions.insert(0, p);
+        self.positions.truncate(POSITIONS_MAX);
+        true
+    }
+
     pub fn visit(&mut self, key: &ThreadKey, subject: &str, posts: usize, max_no: u64, now: i64) {
         self.history.retain(|v| &v.key != key);
         let visit = Visit { key: key.clone(), subject: subject.to_string(), last_seen: max_no, opened: now };

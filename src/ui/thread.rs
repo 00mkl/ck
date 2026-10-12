@@ -32,11 +32,14 @@ pub(super) fn draw_thread(f: &mut Frame, app: &mut App, area: Rect) {
             t.cache_width = area.width;
         }
         t.layout = Some(layout_thread(t, area.width, thumbs));
-        // After a refresh, keep the same post at the top even if lines above it changed.
+        // After a refresh (or opening a thread where it was left), keep the same post at the
+        // top even if lines above it changed, and no further into it than its last line.
         if let Some((i, off)) = t.anchor.take() {
             lay_out_entries(t, [i], clock);
             if let Some(l) = &t.layout {
-                t.scroll = (l.starts.get(i).copied().unwrap_or(0) + off).min(l.len().saturating_sub(t.viewport));
+                let start = l.starts.get(i).copied().unwrap_or(0);
+                let off = off.min(l.starts.get(i + 1).map_or(0, |end| end.saturating_sub(start + 2)));
+                t.scroll = (start + off).min(l.len().saturating_sub(t.viewport));
             }
         }
         t.reveal.get_or_insert(Reveal::Visible);

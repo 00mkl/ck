@@ -48,6 +48,9 @@ pub struct Config {
     /// Start where the last run left off.
     #[serde(default = "default_true")]
     pub restore_session: bool,
+    /// Opening a thread read before goes back to where it was left.
+    #[serde(default = "default_true")]
+    pub remember_thread_position: bool,
     /// Images on boards the site marks NSFW (a board's own setting comes first).
     #[serde(default)]
     pub nsfw_images: NsfwImages,

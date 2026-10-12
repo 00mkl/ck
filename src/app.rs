@@ -508,6 +508,8 @@ pub struct App {
     pub image_search: Vec<crate::config::ImageSearch>,
     /// Save where you are and start there next time.
     pub restore_session: bool,
+    /// Opening a thread read before goes back to where it was left (`remember_thread_position`).
+    pub remember_thread_position: bool,
     /// Reading the end of a thread, new posts come into view (`follow_new_posts`).
     pub follow_new_posts: bool,
     /// `set_title`: the terminal's title says where ck is and what's new; and the title as
@@ -681,6 +683,7 @@ impl App {
             }, DiskCache::default_dir().map(|d| DiskCache::new(d, crate::disk_cache::BUDGET))),
             image_search: if cfg.image_search.is_empty() { crate::config::ImageSearch::defaults() } else { cfg.image_search.clone() },
             restore_session: cfg.restore_session,
+            remember_thread_position: cfg.remember_thread_position,
             follow_new_posts: cfg.follow_new_posts,
             set_title: cfg.set_title,
             title_shown: None,
@@ -1174,6 +1177,21 @@ impl App {
     pub fn flush_writes(&mut self) {
         for e in self.store.flush(Duration::from_secs(5)) {
             self.error(e);
+        }
+    }
+
+    /// Remember where the thread on screen is read to (`remember_thread_position`): after
+    /// each frame, so leaving it, closing its tab or quitting has nothing more to do. Only
+    /// moving in it counts, not where it opened, nor a tab shown again: a thread in two tabs
+    /// is remembered where it was last read to.
+    pub fn note_position(&mut self) {
+        if !self.remember_thread_position || self.tab.view() != View::Thread {
+            return;
+        }
+        let Some(t) = self.tab.thread.as_mut() else { return };
+        let Some(p) = t.position().filter(|p| t.noted.as_ref() != Some(p)) else { return };
+        if t.noted.replace(p.clone()).is_some() && self.store.set_position(p) {
+            self.save();
         }
     }
 
@@ -1685,7 +1703,7 @@ impl App {
         }
     }
 
-    /// Open a file externally: videos in mpv when it's installed, everything else in the
+    /// Open a file externally: videos in the video player, everything else in the
     /// default opener; a file the site or archive didn't keep, as its thumbnail.
     pub fn open_file(&mut self, f: &Attachment) {
         let url = match (f.url.as_deref(), &f.thumb) {

@@ -235,16 +235,28 @@ pub const SECTIONS: &[(&str, &[Setting])] = &[
         |a| a.download_dir.clone().unwrap_or_else(|| "~/Downloads/ck/{site}/{board}/{thread}".into()),
         |a| open(a, SettingsPopup::Folder { value: a.download_dir.clone().unwrap_or_default() }),
     )]),
-    ("Startup", &[row(
-        "Last place",
-        "Start where you left off (ck URL starts elsewhere)",
-        |a| if a.restore_session { "restored" } else { "not restored" }.into(),
-        |a| {
-            a.restore_session = !a.restore_session;
-            let on = a.restore_session;
-            a.save_config(if on { "restoring the last place" } else { "not restoring the last place" }, |d| d["restore_session"] = toml_edit::value(on));
-        },
-    )]),
+    ("Startup", &[
+        row(
+            "Last place",
+            "Start where you left off (ck URL starts elsewhere)",
+            |a| if a.restore_session { "restored" } else { "not restored" }.into(),
+            |a| {
+                a.restore_session = !a.restore_session;
+                let on = a.restore_session;
+                a.save_config(if on { "restoring the last place" } else { "not restoring the last place" }, |d| d["restore_session"] = toml_edit::value(on));
+            },
+        ),
+        row(
+            "Place in threads",
+            "Opening a thread you read before goes back to where you left it",
+            |a| if a.remember_thread_position { "remembered" } else { "from the top" }.into(),
+            |a| {
+                a.remember_thread_position = !a.remember_thread_position;
+                let on = a.remember_thread_position;
+                a.save_config(if on { "remembering places in threads" } else { "not remembering places in threads" }, |d| d["remember_thread_position"] = toml_edit::value(on));
+            },
+        ),
+    ]),
     ("Keys", &[row(
         "Key bindings",
         "Rebind any command",
